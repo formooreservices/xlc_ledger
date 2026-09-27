@@ -254,7 +254,8 @@
   <button data-view="payroll">Payroll</button>
   <button data-view="loans">Owner Loans</button>
   <button data-view="reconcile">Bank Stmt Reconciliation</button>
-  <a href="/import.html" style="margin-left:auto; align-self:center; color:#D8D2B8; font-size:12.5px; text-decoration:none; padding:7px 14px; border:1px solid #3E5F4E; border-radius:3px;">⇪ Bulk Import</a>
+  <button onclick="openAddTxn()" style="margin-left:auto; align-self:center; background:var(--gold,#B08D3E); color:#2A2A22; border:none; font-size:12.5px; font-weight:600; padding:7px 14px; border-radius:3px; cursor:pointer;">+ Add Transaction</button>
+  <a href="/import.html" style="align-self:center; color:#D8D2B8; font-size:12.5px; text-decoration:none; padding:7px 14px; border:1px solid #3E5F4E; border-radius:3px;">⇪ Bulk Import</a>
 </nav>
 
 <main>
@@ -397,6 +398,7 @@
         <input type="text" id="exp-search" placeholder="Search payee, category, check #…" style="min-width:180px;">
         <button class="ghost no-print" onclick="printView('expenses')">🖨 Print</button>
         <button class="ghost no-print" onclick="emailView('expenses')">✉ Email</button>
+        <button class="ghost no-print" onclick="exportSummaryCSV('exp','checks-category-summary.csv')">⬇ Export CSV</button>
       </div>
     </div>
 
@@ -459,6 +461,7 @@
         <input type="text" id="ew-search" placeholder="Search payee, category…" style="min-width:180px;">
         <button class="ghost no-print" onclick="printView('ewithdrawals')">🖨 Print</button>
         <button class="ghost no-print" onclick="emailView('ewithdrawals')">✉ Email</button>
+        <button class="ghost no-print" onclick="exportSummaryCSV('ew','ewithdrawals-category-summary.csv')">⬇ Export CSV</button>
       </div>
     </div>
 
@@ -536,6 +539,7 @@
         <input type="text" id="liab-search" placeholder="Search payee, category…" style="min-width:180px;">
         <button class="ghost no-print" onclick="printView('liabilities')">🖨 Print</button>
         <button class="ghost no-print" onclick="emailView('liabilities')">✉ Email</button>
+        <button class="ghost no-print" onclick="exportSummaryCSV('liab','liabilities-category-summary.csv')">⬇ Export CSV</button>
       </div>
     </div>
 
@@ -604,6 +608,7 @@
         <input type="text" id="pc-search" placeholder="Search payee…" style="min-width:180px;">
         <button class="ghost no-print" onclick="printView('pettycash')">🖨 Print</button>
         <button class="ghost no-print" onclick="emailView('pettycash')">✉ Email</button>
+        <button class="ghost no-print" onclick="exportSummaryCSV('pc','pettycash-person-summary.csv')">⬇ Export CSV</button>
       </div>
     </div>
 
@@ -667,6 +672,7 @@
         <input type="text" id="payroll-search" placeholder="Search employee, check #…" style="min-width:180px;">
         <button class="ghost no-print" onclick="printView('payroll')">🖨 Print</button>
         <button class="ghost no-print" onclick="emailView('payroll')">✉ Email</button>
+        <button class="ghost no-print" onclick="exportSummaryCSV('payroll','payroll-person-summary.csv')">⬇ Export CSV</button>
       </div>
     </div>
 
@@ -826,6 +832,41 @@
       <div class="modal-foot">
         <button type="button" class="ghost" onclick="closeModal('edit-modal')">Cancel</button>
         <button type="submit" class="primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Manual "Add Transaction" modal — one entry point that routes to whichever
+     table/bucket fits the selected type (checks/e-withdrawals share the
+     expenses table; sales & deposits go to payments; payroll and owner
+     loans have their own tables). Liabilities and Petty Cash are just
+     filtered views of expenses, so they route there too with a
+     constrained category. -->
+<div class="modal-overlay" id="add-txn-modal">
+  <div class="modal">
+    <div class="modal-head"><h3>Add Transaction</h3><button class="x" onclick="closeModal('add-txn-modal')">✕</button></div>
+    <form id="add-txn-form">
+      <div class="modal-body">
+        <div class="form-row">
+          <div style="grid-column:1/-1;">
+            <label>Type</label>
+            <select id="add-txn-type" onchange="renderAddTxnFields()">
+              <option value="check">Withdrawal — Check</option>
+              <option value="electronic">Withdrawal — Electronic</option>
+              <option value="deposit">Deposit / Sale Payment</option>
+              <option value="liability">Liability Payment</option>
+              <option value="pettycash">Petty Cash</option>
+              <option value="payroll">Payroll</option>
+              <option value="loan">Owner Loan Activity</option>
+            </select>
+          </div>
+        </div>
+        <div id="add-txn-fields"></div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="ghost" onclick="closeModal('add-txn-modal')">Cancel</button>
+        <button type="submit" class="primary">Save</button>
       </div>
     </form>
   </div>
@@ -1460,6 +1501,132 @@ const TABLE_CONFIG = {
     reload: () => loadLoans(),
   },
 };
+
+/* ---------------------------------------------------------
+   MANUAL "ADD TRANSACTION" — one form, routes to whichever
+   bucket/table fits the selected type.
+--------------------------------------------------------- */
+const ADD_TXN_TYPES = {
+  check: {
+    table:'expenses', presets:{payment_method:'check'}, reload:()=>{loadExpenses(); loadCategoryFilter('exp-filter-category');},
+    fields:[
+      {key:'date', label:'Date', type:'date'},
+      {key:'check_number', label:'Check #', type:'text'},
+      {key:'payee', label:'Payee', type:'text'},
+      {key:'category', label:'Category', type:'text', list:'category-list'},
+      {key:'amount', label:'Amount', type:'number'},
+      {key:'notes', label:'Notes', type:'text'},
+    ],
+  },
+  electronic: {
+    table:'expenses', presets:{payment_method:'electronic'}, reload:()=>{loadEwithdrawals(); loadCategoryFilter('ew-filter-category','electronic');},
+    fields:[
+      {key:'date', label:'Date', type:'date'},
+      {key:'payee', label:'Payee', type:'text'},
+      {key:'category', label:'Category', type:'text', list:'category-list'},
+      {key:'amount', label:'Amount', type:'number'},
+      {key:'notes', label:'Notes', type:'text'},
+    ],
+  },
+  deposit: {
+    table:'payments', presets:{}, reload:()=>loadSales(),
+    fields:[
+      {key:'payment_date', label:'Payment Date', type:'date'},
+      {key:'invoice_number', label:'Invoice #', type:'text'},
+      {key:'customer', label:'Customer', type:'text'},
+      {key:'amount', label:'Paid Amount', type:'number'},
+      {key:'reference', label:'Reference', type:'text'},
+      {key:'deposit_reference', label:'Deposit Ref', type:'text'},
+      {key:'deposit_date', label:'Deposit Date', type:'date'},
+      {key:'notes', label:'Notes', type:'text'},
+    ],
+  },
+  liability: {
+    table:'expenses', presets:{}, reload:()=>loadLiabilities(),
+    fields:[
+      {key:'date', label:'Date', type:'date'},
+      {key:'payment_method', label:'Method', type:'select', options:['check','electronic']},
+      {key:'check_number', label:'Check # (if applicable)', type:'text'},
+      {key:'payee', label:'Payee', type:'text'},
+      {key:'category', label:'Category', type:'text', list:'liability-category-list'},
+      {key:'amount', label:'Amount', type:'number'},
+      {key:'notes', label:'Notes', type:'text'},
+    ],
+  },
+  pettycash: {
+    table:'expenses', presets:{category:'Petty Cash'}, reload:()=>loadPettyCash(),
+    fields:[
+      {key:'date', label:'Date', type:'date'},
+      {key:'payment_method', label:'Method', type:'select', options:['check','electronic']},
+      {key:'payee', label:'Person / Payee', type:'text'},
+      {key:'amount', label:'Amount', type:'number'},
+      {key:'notes', label:'Notes', type:'text'},
+    ],
+  },
+  payroll: {
+    table:'payroll_entries', presets:{}, reload:()=>loadPayroll(),
+    fields: TABLE_CONFIG.payroll_entries.fields,
+  },
+  loan: {
+    table:'owner_loans', presets:{}, reload:()=>loadLoans(),
+    fields: TABLE_CONFIG.owner_loans.fields,
+  },
+};
+
+function renderAddTxnFields(){
+  const type = document.getElementById('add-txn-type').value;
+  const cfg = ADD_TXN_TYPES[type];
+  document.getElementById('add-txn-fields').innerHTML = cfg.fields.map(f=>{
+    if (f.type === 'select'){
+      return `<div class="form-row"><div style="grid-column:1/-1;"><label>${f.label}</label><select name="${f.key}">${f.options.map(o=>`<option value="${o}">${o}</option>`).join('')}</select></div></div>`;
+    }
+    return `<div class="form-row"><div style="grid-column:1/-1;"><label>${f.label}</label><input type="${f.type}" name="${f.key}" ${f.type==='number'?'step="0.01"':''} ${f.list?`list="${f.list}"`:''} ${f.key==='date'||f.key==='pay_date'||f.key==='payment_date'?'required':''}></div></div>`;
+  }).join('');
+}
+
+function openAddTxn(){
+  document.getElementById('add-txn-type').value = 'check';
+  renderAddTxnFields();
+  document.getElementById('add-txn-modal').classList.add('open');
+}
+
+document.getElementById('add-txn-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const type = document.getElementById('add-txn-type').value;
+  const cfg = ADD_TXN_TYPES[type];
+  const fd = new FormData(e.target);
+  const payload = {...cfg.presets};
+  cfg.fields.forEach(f => {
+    let val = fd.get(f.key);
+    if (val === null) return; // preset already covers it (e.g. petty cash category)
+    if (f.type === 'number') val = Number(val || 0);
+    payload[f.key] = val;
+  });
+  const {error} = await sb.from(cfg.table).insert([payload]);
+  if (error){ alert('Could not save: ' + error.message); return; }
+  closeModal('add-txn-modal');
+  e.target.reset();
+  cfg.reload();
+});
+
+/* ---------------------------------------------------------
+   EXPORT — download any "Summary by Category/Person" panel as CSV
+--------------------------------------------------------- */
+function exportSummaryCSV(prefix, filename){
+  const bodyRows = [...document.querySelectorAll(`#${prefix}-summary-body tr`)];
+  const rows = bodyRows
+    .filter(tr => !tr.querySelector('.empty'))
+    .map(tr => [...tr.children].map(td => td.textContent.trim()));
+  const totalCell = document.getElementById(`${prefix}-summary-total`);
+  if (totalCell) rows.push(['Total', totalCell.textContent.trim()]);
+  if (!rows.length){ alert('Nothing to export for this view.'); return; }
+  const csv = rows.map(r => r.map(v => `"${v.replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
 
 function closeModal(id){ document.getElementById(id).classList.remove('open'); }
 

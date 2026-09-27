@@ -124,7 +124,7 @@
       <div class="panel-head">
         <h2 id="review-title">Review &amp; fix flagged rows</h2>
         <div class="toolbar" style="margin:0;">
-          <button class="ghost" id="check-dupes-btn">Check for Duplicates in Supabase</button>
+          <button class="ghost" id="check-dupes-btn">Reconcile with Supabase</button>
           <button class="ghost" id="show-flagged-only">Show Flagged/Duplicates Only</button>
           <button class="ghost" id="show-all-rows">Show All</button>
         </div>
@@ -512,7 +512,8 @@ function renderReview(){
     body.innerHTML = visible.map(r=>{
       const cls = [r.flagged?'flagged':'', r.isVoid?'void-row':'', r.dup?'dup-row':''].filter(Boolean).join(' ');
       let statusBadge = '';
-      if (r.dup) statusBadge = `<span class="badge dup">Exists</span>`;
+      if (r.mismatch) statusBadge = `<span class="badge warn" title="Same check#/payee found in Supabase, but amount differs">⚠ Amount differs (DB: $${Number(r.existingRow.amount).toFixed(2)})</span>`;
+      else if (r.dup) statusBadge = `<span class="badge dup">Exists</span>`;
       else if (r.isVoid) statusBadge = `<span class="badge miss">Void</span>`;
       else if (r.flagged) statusBadge = `<span class="badge warn">⚠ Confirm date</span>`;
       else statusBadge = `<span class="badge">Ready</span>`;
@@ -586,22 +587,38 @@ async function checkDuplicates(){
   try{
     if (kind === 'check_number'){
       const checkNums = [...new Set(rows.map(r=>r.checkNum).filter(Boolean))];
-      const existing = new Set();
+      const existingAmt = new Map();
       for (let i=0;i<checkNums.length;i+=200){
         const chunk = checkNums.slice(i,i+200);
-        const {data, error} = await sb.from('expenses').select('check_number').eq('payment_method','check').in('check_number', chunk);
+        const {data, error} = await sb.from('expenses').select('check_number,amount,payee,category').eq('payment_method','check').in('check_number', chunk);
         if (error) throw error;
-        (data||[]).forEach(d => existing.add(String(d.check_number).trim()));
+        (data||[]).forEach(d => existingAmt.set(String(d.check_number).trim(), d));
       }
-      rows.forEach(r => { r.dup = existing.has(r.checkNum); });
+      rows.forEach(r => {
+        const match = existingAmt.get(r.checkNum);
+        r.dup = !!match;
+        r.mismatch = !!match && Number(match.amount).toFixed(2) !== Number(r.amount).toFixed(2);
+        r.existingRow = match || null;
+      });
 
     } else if (kind === 'electronic'){
       const dates = rows.map(r=>r.date).filter(Boolean).sort();
       if (!dates.length){ status.textContent='No dated rows to check.'; status.className='status-msg err'; return; }
       const {data, error} = await sb.from('expenses').select('date,payee,amount').eq('payment_method','electronic').gte('date', dates[0]).lte('date', dates[dates.length-1]);
       if (error) throw error;
-      const existing = (data||[]).map(d => `${d.date}|${String(d.payee||'').trim().toLowerCase()}|${Number(d.amount).toFixed(2)}`);
-      rows.forEach(r => { r.dup = existing.includes(`${r.date}|${r.payee.trim().toLowerCase()}|${Number(r.amount).toFixed(2)}`); });
+      const exactKeys = new Set((data||[]).map(d => `${d.date}|${String(d.payee||'').trim().toLowerCase()}|${Number(d.amount).toFixed(2)}`));
+      // Looser same-day-and-payee map (ignoring amount) so a changed amount
+      // shows as a mismatch to review, instead of silently importing as new.
+      const byDatePayee = new Map();
+      (data||[]).forEach(d => byDatePayee.set(`${d.date}|${String(d.payee||'').trim().toLowerCase()}`, d));
+      rows.forEach(r => {
+        const exactKey = `${r.date}|${r.payee.trim().toLowerCase()}|${Number(r.amount).toFixed(2)}`;
+        r.dup = exactKeys.has(exactKey);
+        if (!r.dup){
+          const loose = byDatePayee.get(`${r.date}|${r.payee.trim().toLowerCase()}`);
+          if (loose){ r.dup = true; r.mismatch = true; r.existingRow = loose; }
+        }
+      });
 
     } else if (kind === 'payroll'){
       const dates = rows.map(r=>r.date).filter(Boolean).sort();
@@ -619,8 +636,11 @@ async function checkDuplicates(){
     }
 
     const dupCount = rows.filter(r=>r.dup).length;
-    status.textContent = `Duplicate check complete. ${dupCount} row(s) already exist.`;
-    status.className = 'status-msg ok';
+    const mismatchCount = rows.filter(r=>r.mismatch).length;
+    status.textContent = mismatchCount
+      ? `Reconcile complete. ${dupCount} row(s) already exist — ${mismatchCount} of those have a different amount in Supabase. Review before importing.`
+      : `Duplicate check complete. ${dupCount} row(s) already exist.`;
+    status.className = mismatchCount ? 'status-msg warn' : 'status-msg ok';
     renderReview();
   } catch(err){
     status.textContent = 'Error checking duplicates: ' + err.message;
