@@ -1,0 +1,2493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Excell Cores — Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  /* ============================================================
+     LEDGER — visual identity, deliberately distinct from the
+     Contract Manager's blue nav. Deep forest green + aged paper +
+     red-ink-for-negatives, the actual convention accountants use.
+     ============================================================ */
+  :root{
+    --paper:      #ECE6D6;
+    --paper-2:    #E4DCC7;
+    --rule:       #C6BB9E;
+    --ink:        #23301F;
+    --ink-soft:   #5B6152;
+    --green:      #2C4A3B;
+    --green-dark: #172A21;
+    --green-line: #3E5F4E;
+    --red-ink:    #8C3626;
+    --gold:       #92702B;
+    --card:       #F5F1E6;
+    --radius: 3px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background: var(--paper);
+    color:var(--ink);
+    font-family:'Inter',system-ui,sans-serif;
+    font-size:14px;
+    line-height:1.45;
+    min-height:100vh;
+  }
+  h1,h2,h3{
+    font-family:'Source Serif 4',Georgia,serif;
+    font-weight:600;
+    margin:0 0 4px;
+    color:var(--ink);
+    letter-spacing:.2px;
+  }
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace; font-variant-numeric: tabular-nums;}
+  .amt{font-family:'IBM Plex Mono',ui-monospace,monospace; font-variant-numeric: tabular-nums; text-align:right; display:inline-block; min-width:1ch;}
+  .neg{color:var(--red-ink); font-weight:600;}
+
+  /* Top bar — forest green, unmistakably not the app's blue nav */
+  header.topbar{
+    background:var(--green-dark);
+    color:#EFEAD9;
+    padding:14px 22px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    border-bottom:3px solid var(--gold);
+  }
+  header.topbar .brand{display:flex; align-items:baseline; gap:10px;}
+  header.topbar .brand .mark{
+    font-family:'Source Serif 4',serif; font-weight:700; font-size:20px;
+    background:var(--gold); color:var(--green-dark);
+    width:30px;height:30px;border-radius:50%;
+    display:inline-flex;align-items:center;justify-content:center;
+    line-height:1;
+  }
+  header.topbar h1{color:#F5F1E6; font-size:18px; margin:0;}
+  header.topbar .sub{color:#C9C2A6; font-size:12px; letter-spacing:.4px; text-transform:uppercase;}
+  header.topbar a.back{
+    color:#C9C2A6; text-decoration:none; font-size:13px;
+    border:1px solid #3E5F4E; padding:6px 12px; border-radius:var(--radius);
+  }
+  header.topbar a.back:hover{background:var(--green); color:#F5F1E6;}
+
+  nav.tabs{
+    background:var(--green);
+    display:flex; gap:2px; padding:0 22px;
+    overflow-x:auto;
+  }
+  nav.tabs button{
+    background:transparent; border:none; color:#D8D2B8;
+    font-family:'Inter',sans-serif; font-size:13px; font-weight:500;
+    padding:11px 16px; cursor:pointer; white-space:nowrap;
+    border-bottom:3px solid transparent;
+  }
+  nav.tabs button:hover{color:#fff;}
+  nav.tabs button.active{color:#fff; border-bottom-color:var(--gold); background:var(--green-dark);}
+
+  main{max-width:1180px; margin:0 auto; padding:26px 22px 60px;}
+  .view{display:none;}
+  .view.active{display:block;}
+
+  .grid-cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:22px;}
+  .card{
+    background:var(--card); border:1px solid var(--rule); border-radius:var(--radius);
+    padding:14px 16px; border-top:3px solid var(--green);
+  }
+  .card .label{font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-soft);}
+  .card .value{font-family:'IBM Plex Mono',monospace; font-size:22px; font-weight:600; margin-top:4px;}
+  .card.clickable{cursor:pointer; transition:box-shadow .12s, border-color .12s;}
+  .card.clickable:hover{box-shadow:0 0 0 1px var(--green); border-top-color:var(--gold);}
+  .card.clickable.active{border:1px solid var(--green); border-top:3px solid var(--gold); background:var(--paper-2);}
+  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px;}
+  .stat{background:var(--card); border:1px solid var(--rule); border-radius:var(--radius); padding:12px 14px; border-top:3px solid var(--green);}
+  .stat .label{font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--ink-soft);}
+  .stat .value{font-family:'IBM Plex Mono',monospace; font-size:20px; font-weight:600; margin-top:3px;}
+
+  .panel{
+    background:var(--card); border:1px solid var(--rule); border-radius:var(--radius);
+    margin-bottom:22px; overflow:hidden;
+  }
+  .panel-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 16px; border-bottom:1px solid var(--rule); background:var(--paper-2);
+    flex-wrap:wrap; gap:8px;
+  }
+  .panel-head h2{font-size:15px;}
+  .panel-body{padding:16px;}
+
+  .form-row{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; margin-bottom:10px;}
+  label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.4px; color:var(--ink-soft); margin-bottom:3px;}
+  input,select,textarea{
+    width:100%; padding:7px 9px; border:1px solid var(--rule); border-radius:var(--radius);
+    background:#fff; color:var(--ink); font-family:'Inter',sans-serif; font-size:13px;
+  }
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--green); outline-offset:1px;}
+  button.primary{
+    background:var(--green); color:#fff; border:none; border-radius:var(--radius);
+    padding:9px 18px; font-size:13px; font-weight:600; cursor:pointer;
+  }
+  button.primary:hover{background:var(--green-dark);}
+  button.ghost{
+    background:transparent; border:1px solid var(--rule); color:var(--ink);
+    border-radius:var(--radius); padding:8px 14px; font-size:13px; cursor:pointer;
+  }
+  button.ghost:hover{border-color:var(--green); color:var(--green);}
+  button.link{background:none;border:none;color:var(--red-ink);cursor:pointer;font-size:12px;text-decoration:underline;padding:0;}
+  button.link.person-link{color:var(--green); font-weight:600; font-size:13px; text-decoration:none;}
+  button.link.person-link:hover{text-decoration:underline;}
+
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  thead th{
+    text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.4px;
+    color:var(--ink-soft); border-bottom:2px solid var(--green); padding:8px 10px;
+  }
+  tbody td{padding:8px 10px; border-bottom:1px solid var(--rule);}
+  tbody tr:hover{background:var(--paper-2);}
+  td.amt-col, th.amt-col{text-align:right;}
+
+  .toolbar{display:flex; gap:8px; flex-wrap:wrap; align-items:center;}
+  .toolbar select, .toolbar input{width:auto; min-width:130px;}
+
+  .row-input{
+    width:100%; padding:4px 6px; font-size:13px; border:1px solid transparent;
+    background:transparent; color:var(--ink); font-family:'Inter',sans-serif;
+    border-radius:var(--radius);
+  }
+  .row-input:hover{border-color:var(--rule); background:#fff;}
+  .row-input:focus{outline:2px solid var(--green); outline-offset:0; border-color:var(--rule); background:#fff;}
+
+  tr.cat-summary-row{cursor:pointer;}
+  tr.cat-summary-row:hover{background:var(--paper-2); box-shadow: inset 3px 0 0 var(--gold);}
+
+  .badge{
+    display:inline-block; font-size:11px; padding:2px 8px; border-radius:10px;
+    background:var(--green); color:#fff; font-weight:500;
+  }
+  .badge.ok{background:var(--green);}
+  .badge.warn{background:var(--gold); color:var(--green-dark);}
+  .badge.miss{background:var(--red-ink);}
+  .badge.outstanding{background:var(--ink-soft);}
+  .badge.info{background:#3D5A73;}
+  .rec-actions{display:flex; flex-direction:column; align-items:flex-start; gap:6px;}
+  .rec-actions button.link{white-space:nowrap;}
+  .empty{color:var(--ink-soft); font-style:italic; padding:24px; text-align:center;}
+  .status-msg{font-size:12px; color:var(--ink-soft); margin-top:6px;}
+  .status-msg.err{color:var(--red-ink);}
+
+  footer.note{max-width:1180px; margin:0 auto 40px; padding:0 22px; color:var(--ink-soft); font-size:12px;}
+
+  .checks-layout{display:grid; grid-template-columns:1fr 320px; gap:16px; align-items:start;}
+  .checks-summary tfoot td{padding-top:10px;}
+  @media (max-width:860px){ .checks-layout{grid-template-columns:1fr;} }
+
+  @media print{
+    header.topbar, nav.tabs, .no-print, form, footer.note, .modal-overlay, .toolbar, .row-actions{display:none !important;}
+    body{background:#fff !important;}
+    main{max-width:none; padding:0 12px;}
+    .view{display:none !important;}
+    .view.printing{display:block !important;}
+    .panel{border:none; box-shadow:none; break-inside:avoid;}
+    .panel-head{background:none;}
+    .checks-layout{grid-template-columns:1fr 260px;}
+    table{font-size:11px;}
+    thead th{border-bottom:1px solid #000;}
+    table input, table select{
+      border:none; background:none; padding:0; font-family:'IBM Plex Mono',monospace;
+    }
+  }
+
+  .row-actions{display:flex; gap:10px; align-items:center;}
+  .row-actions button.link{color:var(--green); text-decoration:none; font-weight:500;}
+  .row-actions button.link.danger{color:var(--red-ink);}
+  .row-actions button.link:hover{text-decoration:underline;}
+
+  .modal-overlay{
+    display:none; position:fixed; inset:0; background:rgba(23,42,33,.55);
+    z-index:500; align-items:center; justify-content:center; padding:20px;
+  }
+  .modal-overlay.open{display:flex;}
+  .modal{
+    background:var(--card); border:1px solid var(--rule); border-radius:var(--radius);
+    max-width:480px; width:100%; max-height:86vh; overflow-y:auto;
+    border-top:4px solid var(--green);
+  }
+  .modal-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 18px; border-bottom:1px solid var(--rule); background:var(--paper-2);
+  }
+  .modal-head h3{font-size:16px;}
+  .modal-head button.x{background:none; border:none; font-size:18px; color:var(--ink-soft); cursor:pointer; line-height:1;}
+  .modal-body{padding:18px;}
+  .view-line{display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--rule); gap:16px;}
+  .view-line:last-child{border-bottom:none;}
+  .view-line .k{color:var(--ink-soft); font-size:12px; text-transform:uppercase; letter-spacing:.4px;}
+  .view-line .v{font-family:'IBM Plex Mono',monospace; text-align:right;}
+  .modal-foot{padding:12px 18px; border-top:1px solid var(--rule); display:flex; justify-content:flex-end; gap:8px;}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="mark">EC</span>
+    <div>
+      <h1>Ledger</h1>
+      <div class="sub">Bookkeeping · Excell Cores Inc</div>
+    </div>
+  </div>
+  <a class="back" href="/">← Contract Manager</a>
+</header>
+
+<nav class="tabs">
+  <button data-view="dashboard" class="active">Dashboard</button>
+  <button data-view="sales">Sales &amp; Deposits</button>
+  <button data-view="expenses">Checks Register</button>
+  <button data-view="ewithdrawals">E-Withdrawals</button>
+  <button data-view="liabilities">Liabilities</button>
+  <button data-view="pettycash">Petty Cash</button>
+  <button data-view="payroll">Payroll</button>
+  <button data-view="loans">Owner Loans</button>
+  <button data-view="reconcile">Bank Stmt Reconciliation</button>
+  <a href="/import.html" style="margin-left:auto; align-self:center; color:#D8D2B8; font-size:12.5px; text-decoration:none; padding:7px 14px; border:1px solid #3E5F4E; border-radius:3px;">⇪ Bulk Import</a>
+</nav>
+
+<main>
+
+  <!-- ============ DASHBOARD ============ -->
+  <section id="view-dashboard" class="view active">
+    <div class="panel-head" style="background:none;border:none;padding:0 0 14px;">
+      <h2 style="font-size:17px;" id="dash-heading">Monthly Summary</h2>
+      <div class="toolbar">
+        <select id="dash-mode">
+          <option value="month">Month</option>
+          <option value="ytd">Year to Date</option>
+        </select>
+        <input type="month" id="dash-month">
+        <select id="dash-year" style="display:none;"></select>
+        <button class="ghost no-print" onclick="printView('dashboard')">🖨 Print</button>
+        <button class="ghost no-print" onclick="emailView('dashboard')">✉ Email</button>
+      </div>
+    </div>
+    <div class="grid-cards" id="dash-cards">
+      <div class="card">
+        <div class="label">Sales</div>
+        <div class="value" id="d-sales">—</div>
+        <button class="link" id="sales-detail-toggle" style="margin-top:6px;">View contracts in this total</button>
+      </div>
+      <div class="card"><div class="label">Deposits</div><div class="value" id="d-deposits">—</div></div>
+      <div class="card"><div class="label">Expenses</div><div class="value" id="d-expenses">—</div></div>
+      <div class="card"><div class="label">Liabilities</div><div class="value" id="d-liabilities">—</div></div>
+      <div class="card"><div class="label">Petty Cash</div><div class="value" id="d-pettycash">—</div></div>
+      <div class="card"><div class="label">Payroll</div><div class="value" id="d-payroll">—</div></div>
+      <div class="card"><div class="label">Owner Loan Balance</div><div class="value" id="d-loans">—</div></div>
+      <div class="card"><div class="label">Net Cash Movement</div><div class="value" id="d-net">—</div></div>
+    </div>
+
+    <div class="panel" id="sales-detail-panel" style="display:none;">
+      <div class="panel-head">
+        <h2>Sales Detail — contracts in this total</h2>
+        <button class="ghost" onclick="document.getElementById('sales-detail-panel').style.display='none';">Hide</button>
+      </div>
+      <div class="panel-body">
+        <p class="status-msg">Every contract counted toward the Sales figure above, for the current period — Open contracts are excluded since they aren't guaranteed a payment yet; a contract counts once its Pro Forma has been issued. Value used is <span class="mono">final_total</span> where set, otherwise <span class="mono">proforma_total</span>.</p>
+        <table>
+          <thead>
+            <tr><th>Contract #</th><th>Customer</th><th>Contract Date</th><th class="amt-col">Pro Forma</th><th class="amt-col">Final</th><th>Value Used</th><th class="amt-col">Amount</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody id="sales-detail-body"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
+        </table>
+        <div class="status-msg" id="sales-detail-summary"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Expenses by Category</h2></div>
+      <div class="panel-body">
+        <table>
+          <thead><tr><th>Category</th><th class="amt-col">Amount</th></tr></thead>
+          <tbody id="dash-category-body"><tr><td colspan="2" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SALES & DEPOSITS (read from existing tables) ============ -->
+  <section id="view-sales" class="view">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Sales &amp; Deposits</h2>
+        <div class="toolbar">
+          <select id="sales-mode"><option value="month">Month</option><option value="ytd">Year to Date</option></select>
+          <input type="month" id="sales-month">
+          <select id="sales-year" style="display:none;"></select>
+          <select id="sales-group"><option value="deposit">Group by deposit</option><option value="none">One row per payment</option></select>
+          <input type="text" id="sales-search" placeholder="Search invoice, customer, ref…" style="min-width:180px;">
+          <button class="ghost no-print" onclick="printView('sales')">🖨 Print</button>
+          <button class="ghost no-print" onclick="emailView('sales')">✉ Email</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <p class="status-msg">Shows every Sale (Pro Forma or Sales Order invoice issued, Open contracts excluded) for the period, plus Deposits received — grouped into bank deposits same as before. A sale with no deposit yet still shows its row so nothing invoiced goes missing from this view.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Sale Date</th><th>Deposit Date</th><th>Deposit Ref</th><th class="amt-col">Deposit Amt</th><th>Invoice(s)</th><th>Customer</th>
+              <th class="amt-col">Sale Amt</th><th class="amt-col">Paid Amount</th><th>Payment Date</th><th class="amt-col">Balance</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="sales-body"><tr><td colspan="11" class="empty">Loading…</td></tr></tbody>
+        </table>
+        <div class="status-msg" id="sales-summary"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ EXPENSES / CHECKS REGISTER ============ -->
+  <section id="view-expenses" class="view">
+    <div class="panel">
+      <div class="panel-head"><h2>Log a Check</h2></div>
+      <div class="panel-body">
+        <form id="expense-form">
+          <div class="form-row">
+            <div><label>Date</label><input type="date" name="date" required></div>
+            <div><label>Method</label>
+              <select name="payment_method" id="exp-method" required>
+                <option value="check">Check</option>
+                <option value="electronic">Electronic</option>
+              </select>
+            </div>
+            <div id="exp-checknum-wrap"><label>Check #</label><input type="text" name="check_number"></div>
+            <div><label>Payee</label><input type="text" name="payee" required></div>
+            <div><label>Category</label><input type="text" name="category" list="category-list" required></div>
+            <div><label>Amount</label><input type="number" step="0.01" name="amount" required></div>
+            <div><label>Post Date <span style="font-weight:400;color:var(--ink-soft);">(optional)</span></label><input type="date" name="post_date"></div>
+          </div>
+          <div class="form-row">
+            <div style="grid-column:1/-1;"><label>Notes</label><input type="text" name="notes"></div>
+          </div>
+          <button class="primary" type="submit">Save Expense</button>
+          <span class="status-msg" id="expense-status"></span>
+        </form>
+        <datalist id="category-list">
+          <option value="Cost of Goods"></option><option value="Rent"></option><option value="Payroll"></option>
+          <option value="Petty Cash"></option><option value="Loan Payment"></option><option value="Auto Payment"></option>
+          <option value="Water"></option><option value="Electricity"></option><option value="Internet"></option>
+          <option value="Shop Supplies"></option><option value="Freight"></option><option value="Pest Control"></option>
+          <option value="Pallets"></option><option value="Forklift Repair"></option><option value="Cell Phone"></option>
+          <option value="Bank Fees"></option><option value="Life Insurance"></option><option value="Credit Card Payment"></option>
+          <option value="CPA"></option><option value="EIDL Loan"></option><option value="Bronco Auto Loan Payment"></option>
+        </datalist>
+      </div>
+    </div>
+
+    <div class="panel-head" style="background:none;border:none;padding:0 0 10px;">
+      <h2 style="font-size:17px;">Checks Register</h2>
+      <div class="toolbar">
+        <select id="exp-mode"><option value="month">Month</option><option value="ytd">Year to Date</option></select>
+        <input type="month" id="exp-month">
+        <select id="exp-year" style="display:none;"></select>
+        <select id="exp-filter-method"><option value="check" selected>Check</option><option value="">All methods</option><option value="electronic">Electronic</option></select>
+        <select id="exp-filter-category"><option value="">All categories</option></select>
+        <input type="text" id="exp-search" placeholder="Search payee, category, check #…" style="min-width:180px;">
+        <button class="ghost no-print" onclick="printView('expenses')">🖨 Print</button>
+        <button class="ghost no-print" onclick="emailView('expenses')">✉ Email</button>
+      </div>
+    </div>
+
+    <div class="checks-layout">
+      <div class="panel">
+        <div class="panel-body">
+          <table>
+            <thead>
+              <tr><th>Date</th><th>Post Date</th><th>Method</th><th>Check #</th><th>Payee</th><th>Category</th><th class="amt-col">Amount</th><th>Bank Match</th><th class="no-print"></th></tr>
+            </thead>
+            <tbody id="expense-body"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
+          </table>
+          <div class="status-msg" id="expense-summary"></div>
+        </div>
+      </div>
+
+      <div class="panel checks-summary">
+        <div class="panel-head"><h2>Summary by Category</h2></div>
+        <div class="panel-body">
+          <table>
+            <thead><tr><th>Description</th><th class="amt-col">SUM of Amount</th></tr></thead>
+            <tbody id="exp-summary-body"><tr><td colspan="2" class="empty">—</td></tr></tbody>
+            <tfoot>
+              <tr style="border-top:2px solid var(--green);"><td><strong>Total</strong></td><td class="amt-col" id="exp-summary-total"><strong>—</strong></td></tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ E-WITHDRAWALS ============ -->
+  <section id="view-ewithdrawals" class="view">
+    <div class="panel">
+      <div class="panel-head"><h2>Log an E-Withdrawal</h2></div>
+      <div class="panel-body">
+        <form id="ewithdrawal-form">
+          <div class="form-row">
+            <div><label>Date</label><input type="date" name="date" required></div>
+            <div><label>Payee</label><input type="text" name="payee" required></div>
+            <div><label>Category</label><input type="text" name="category" list="category-list" required></div>
+            <div><label>Amount</label><input type="number" step="0.01" name="amount" required></div>
+          </div>
+          <div class="form-row">
+            <div style="grid-column:1/-1;"><label>Notes</label><input type="text" name="notes"></div>
+          </div>
+          <button class="primary" type="submit">Save E-Withdrawal</button>
+          <span class="status-msg" id="ewithdrawal-status"></span>
+        </form>
+      </div>
+    </div>
+
+    <div class="panel-head" style="background:none;border:none;padding:0 0 10px;">
+      <h2 style="font-size:17px;">E-Withdrawals</h2>
+      <div class="toolbar">
+        <select id="ew-mode"><option value="month">Month</option><option value="ytd">Year to Date</option></select>
+        <input type="month" id="ew-month">
+        <select id="ew-year" style="display:none;"></select>
+        <select id="ew-filter-category"><option value="">All categories</option></select>
+        <input type="text" id="ew-search" placeholder="Search payee, category…" style="min-width:180px;">
+        <button class="ghost no-print" onclick="printView('ewithdrawals')">🖨 Print</button>
+        <button class="ghost no-print" onclick="emailView('ewithdrawals')">✉ Email</button>
+      </div>
+    </div>
+
+    <div class="checks-layout">
+      <div class="panel">
+        <div class="panel-body">
+          <table>
+            <thead>
+              <tr><th>Date</th><th>Payee</th><th>Category</th><th class="amt-col">Amount</th><th class="no-print"></th></tr>
+            </thead>
+            <tbody id="ewithdrawal-body"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+          </table>
+          <div class="status-msg" id="ewithdrawal-summary"></div>
+        </div>
+      </div>
+
+      <div class="panel checks-summary">
+        <div class="panel-head"><h2>Summary by Category</h2></div>
+        <div class="panel-body">
+          <table>
+            <thead><tr><th>Description</th><th class="amt-col">SUM of Amount</th></tr></thead>
+            <tbody id="ew-summary-body"><tr><td colspan="2" class="empty">—</td></tr></tbody>
+            <tfoot>
+              <tr style="border-top:2px solid var(--green);"><td><strong>Total</strong></td><td class="amt-col" id="ew-summary-total"><strong>—</strong></td></tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ LIABILITIES ============ -->
+  <section id="view-liabilities" class="view">
+    <div class="panel">
+      <div class="panel-head"><h2>Log a Liability Payment</h2></div>
+      <div class="panel-body">
+        <form id="liability-form">
+          <div class="form-row">
+            <div><label>Date</label><input type="date" name="date" required></div>
+            <div><label>Method</label>
+              <select name="payment_method" id="liab-method" required>
+                <option value="electronic">Electronic</option>
+                <option value="check">Check</option>
+              </select>
+            </div>
+            <div id="liab-checknum-wrap" style="display:none;"><label>Check #</label><input type="text" name="check_number"></div>
+            <div><label>Payee</label><input type="text" name="payee" required></div>
+            <div><label>Category</label>
+              <input type="text" name="category" list="liability-category-list" required placeholder="e.g. Loan Payment">
+            </div>
+            <div><label>Amount</label><input type="number" step="0.01" name="amount" required></div>
+          </div>
+          <div class="form-row">
+            <div style="grid-column:1/-1;"><label>Notes</label><input type="text" name="notes"></div>
+          </div>
+          <button class="primary" type="submit">Save Liability</button>
+          <span class="status-msg" id="liability-status"></span>
+        </form>
+        <datalist id="liability-category-list">
+          <option value="Loan Payment"></option><option value="Auto Payment"></option>
+          <option value="Bronco Auto Loan Payment"></option><option value="Credit Card Payment"></option>
+          <option value="EIDL Loan"></option>
+        </datalist>
+        <p class="status-msg">Liabilities is a filtered view of the same <span class="mono">expenses</span> table — any check or e-withdrawal already logged under one of these categories shows up here automatically, nothing double-entered.</p>
+      </div>
+    </div>
+
+    <div class="panel-head" style="background:none;border:none;padding:0 0 10px;">
+      <h2 style="font-size:17px;">Liabilities</h2>
+      <div class="toolbar">
+        <select id="liab-mode"><option value="month">Month</option><option value="ytd">Year to Date</option></select>
+        <input type="month" id="liab-month">
+        <select id="liab-year" style="display:none;"></select>
+        <select id="liab-filter-category"><option value="">All categories</option></select>
+        <input type="text" id="liab-search" placeholder="Search payee, category…" style="min-width:180px;">
+        <button class="ghost no-print" onclick="printView('liabilities')">🖨 Print</button>
+        <button class="ghost no-print" onclick="emailView('liabilities')">✉ Email</button>
+      </div>
+    </div>
+
+    <div class="checks-layout">
+      <div class="panel">
+        <div class="panel-body">
+          <table>
+            <thead>
+              <tr><th>Date</th><th>Method</th><th>Check #</th><th>Payee</th><th>Category</th><th class="amt-col">Amount</th><th class="no-print"></th></tr>
+            </thead>
+            <tbody id="liability-body"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+          </table>
+          <div class="status-msg" id="liability-summary"></div>
+        </div>
+      </div>
+
+      <div class="panel checks-summary">
+        <div class="panel-head"><h2>Summary by Category</h2></div>
+        <div class="panel-body">
+          <table>
+            <thead><tr><th>Description</th><th class="amt-col">SUM of Amount</th></tr></thead>
+            <tbody id="liab-summary-body"><tr><td colspan="2" class="empty">—</td></tr></tbody>
+            <tfoot>
+              <tr style="border-top:2px solid var(--green);"><td><strong>Total</strong></td><td class="amt-col" id="liab-summary-total"><strong>—</strong></td></tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PETTY CASH ============ -->
+  <section id="view-pettycash" class="view">
+    <div class="panel">
+      <div class="panel-head"><h2>Log Petty Cash</h2></div>
+      <div class="panel-body">
+        <form id="pettycash-form">
+          <div class="form-row">
+            <div><label>Date</label><input type="date" name="date" required></div>
+            <div><label>Method</label>
+              <select name="payment_method" id="pc-method" required>
+                <option value="check">Check</option>
+                <option value="electronic">Electronic</option>
+              </select>
+            </div>
+            <div id="pc-checknum-wrap"><label>Check #</label><input type="text" name="check_number"></div>
+            <div><label>Payee</label><input type="text" name="payee" required></div>
+            <div><label>Amount</label><input type="number" step="0.01" name="amount" required></div>
+          </div>
+          <div class="form-row">
+            <div style="grid-column:1/-1;"><label>Notes</label><input type="text" name="notes"></div>
+          </div>
+          <button class="primary" type="submit">Save Petty Cash</button>
+          <span class="status-msg" id="pettycash-status"></span>
+        </form>
+        <p class="status-msg">Category is fixed to <span class="mono">Petty Cash</span> — same filtered-view relationship to <span class="mono">expenses</span> as Liabilities above.</p>
+      </div>
+    </div>
+
+    <div class="panel-head" style="background:none;border:none;padding:0 0 10px;">
+      <h2 style="font-size:17px;">Petty Cash</h2>
+      <div class="toolbar">
+        <select id="pc-mode"><option value="month">Month</option><option value="ytd">Year to Date</option></select>
+        <input type="month" id="pc-month">
+        <select id="pc-year" style="display:none;"></select>
+        <input type="text" id="pc-search" placeholder="Search payee…" style="min-width:180px;">
+        <button class="ghost no-print" onclick="printView('pettycash')">🖨 Print</button>
+        <button class="ghost no-print" onclick="emailView('pettycash')">✉ Email</button>
+      </div>
+    </div>
+
+    <div class="checks-layout">
+      <div class="panel">
+        <div class="panel-body">
+          <table>
+            <thead>
+              <tr><th>Date</th><th>Method</th><th>Check #</th><th>Payee</th><th class="amt-col">Amount</th><th class="no-print"></th></tr>
+            </thead>
+            <tbody id="pettycash-body"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+          </table>
+          <div class="status-msg" id="pettycash-summary"></div>
+        </div>
+      </div>
+
+      <div class="panel checks-summary">
+        <div class="panel-head"><h2>Summary by Person</h2></div>
+        <div class="panel-body">
+          <table>
+            <thead><tr><th>Payee</th><th class="amt-col">SUM of Amount</th></tr></thead>
+            <tbody id="pc-summary-body"><tr><td colspan="2" class="empty">—</td></tr></tbody>
+            <tfoot>
+              <tr style="border-top:2px solid var(--green);"><td><strong>Total</strong></td><td class="amt-col" id="pc-summary-total"><strong>—</strong></td></tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PAYROLL ============ -->
+  <section id="view-payroll" class="view">
+    <div class="panel">
+      <div class="panel-head"><h2>Log Payroll Entry</h2></div>
+      <div class="panel-body">
+        <form id="payroll-form">
+          <div class="form-row">
+            <div><label>Employee</label><input type="text" name="employee_name" required></div>
+            <div><label>Pay Date</label><input type="date" name="pay_date" required></div>
+            <div><label>Check # / Method</label><input type="text" name="check_number" placeholder="e.g. zelle or 20976"></div>
+            <div><label>Gross</label><input type="number" step="0.01" name="gross" required></div>
+            <div><label>FIT</label><input type="number" step="0.01" name="fit" value="0"></div>
+            <div><label>SS EE</label><input type="number" step="0.01" name="ssee" value="0"></div>
+            <div><label>Med EE</label><input type="number" step="0.01" name="med_ee" value="0"></div>
+            <div><label>Other Tax</label><input type="number" step="0.01" name="tax" value="0"></div>
+            <div><label>Net</label><input type="number" step="0.01" name="net" required></div>
+          </div>
+          <button class="primary" type="submit">Save Payroll Entry</button>
+          <span class="status-msg" id="payroll-status"></span>
+        </form>
+      </div>
+    </div>
+
+    <div class="panel-head" style="background:none;border:none;padding:0 0 10px;">
+      <h2 style="font-size:17px;">Payroll History</h2>
+      <div class="toolbar">
+        <select id="payroll-mode"><option value="month">Month</option><option value="ytd">Year to Date</option></select>
+        <input type="month" id="payroll-month">
+        <select id="payroll-year" style="display:none;"></select>
+        <input type="text" id="payroll-search" placeholder="Search employee, check #…" style="min-width:180px;">
+        <button class="ghost no-print" onclick="printView('payroll')">🖨 Print</button>
+        <button class="ghost no-print" onclick="emailView('payroll')">✉ Email</button>
+      </div>
+    </div>
+
+    <div class="checks-layout">
+      <div class="panel">
+        <div class="panel-body">
+          <table>
+            <thead><tr><th>Pay Date</th><th>Employee</th><th>Check#</th><th class="amt-col">Gross</th><th class="amt-col">Taxes</th><th class="amt-col">Net</th><th class="no-print"></th></tr></thead>
+            <tbody id="payroll-body"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+          </table>
+          <div class="status-msg" id="payroll-summary"></div>
+        </div>
+      </div>
+
+      <div class="panel checks-summary">
+        <div class="panel-head"><h2>Summary by Person — YTD</h2></div>
+        <div class="panel-body">
+          <p class="status-msg" style="margin-top:0;">Always year-to-date, regardless of the period filter on the left.</p>
+          <table>
+            <thead><tr><th>Employee</th><th class="amt-col">Net YTD</th></tr></thead>
+            <tbody id="payroll-summary-body"><tr><td colspan="2" class="empty">—</td></tr></tbody>
+            <tfoot>
+              <tr style="border-top:2px solid var(--green);"><td><strong>Total</strong></td><td class="amt-col" id="payroll-summary-total"><strong>—</strong></td></tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ OWNER LOANS ============ -->
+  <section id="view-loans" class="view">
+    <div class="panel">
+      <div class="panel-head"><h2>Log Owner Loan Activity</h2></div>
+      <div class="panel-body">
+        <form id="loan-form">
+          <div class="form-row">
+            <div><label>Person</label><input type="text" name="person" required></div>
+            <div><label>Direction</label>
+              <select name="direction" required>
+                <option value="loan_in">Loan In (to company)</option>
+                <option value="repayment">Repayment (out to person)</option>
+              </select>
+            </div>
+            <div><label>Date</label><input type="date" name="date" required></div>
+            <div><label>Amount</label><input type="number" step="0.01" name="amount" required></div>
+            <div><label>Reference</label><input type="text" name="reference" placeholder="linked expense/check #"></div>
+          </div>
+          <div class="form-row"><div style="grid-column:1/-1;"><label>Notes</label><input type="text" name="notes"></div></div>
+          <button class="primary" type="submit">Save</button>
+          <span class="status-msg" id="loan-status"></span>
+        </form>
+      </div>
+    </div>
+
+    <div class="panel-head" style="background:none;border:none;padding:0 0 10px;">
+      <h2 style="font-size:17px;">Loan Activity Log</h2>
+      <div class="toolbar">
+        <select id="loan-mode"><option value="all">All Time</option><option value="month">Month</option><option value="ytd">Year to Date</option></select>
+        <input type="month" id="loan-month" style="display:none;">
+        <select id="loan-year" style="display:none;"></select>
+        <input type="text" id="loan-search" placeholder="Search person, notes…" style="min-width:180px;">
+        <button class="ghost no-print" onclick="printView('loans')">🖨 Print</button>
+        <button class="ghost no-print" onclick="emailView('loans')">✉ Email</button>
+      </div>
+    </div>
+
+    <div class="checks-layout">
+      <div class="panel">
+        <div class="panel-body">
+          <table>
+            <thead><tr><th>Date</th><th>Person</th><th>Direction</th><th class="amt-col">Amount</th><th>Notes</th><th class="no-print"></th></tr></thead>
+            <tbody id="loan-body"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+          </table>
+          <div class="status-msg" id="loan-summary"></div>
+        </div>
+      </div>
+
+      <div class="panel checks-summary">
+        <div class="panel-head"><h2>Balances by Person</h2></div>
+        <div class="panel-body">
+          <p class="status-msg" style="margin-top:0;">Always all-time / current balance, regardless of the period filter on the left.</p>
+          <table>
+            <thead><tr><th>Person</th><th class="amt-col">Balance</th></tr></thead>
+            <tbody id="loan-balance-body"><tr><td colspan="2" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ BANK STMT RECONCILIATION ============ -->
+  <section id="view-reconcile" class="view">
+    <div class="panel">
+      <div class="panel-head"><h2>Load Bank Statement</h2></div>
+      <div class="panel-body">
+        <div class="form-row">
+          <div style="grid-column:1/3;">
+            <label>Statement PDF</label>
+            <input type="file" id="rec-file" accept="application/pdf">
+          </div>
+          <div><label>Period Start</label><input type="date" id="rec-start"></div>
+          <div><label>Period End</label><input type="date" id="rec-end"></div>
+        </div>
+        <button class="primary" type="button" id="rec-run-btn" disabled>Run Reconciliation</button>
+        <span class="status-msg" id="rec-status">Choose a PDF statement to begin.</span>
+      </div>
+    </div>
+
+    <div class="panel-head" id="rec-results-head" style="display:none;background:none;border:none;padding:0 0 10px;">
+      <h2 style="font-size:17px;">Reconciliation Results</h2>
+      <div class="toolbar">
+        <button class="ghost no-print" onclick="printView('reconcile')">🖨 Print</button>
+        <button class="ghost no-print" onclick="emailView('reconcile')">✉ Email</button>
+      </div>
+    </div>
+
+    <div class="panel" id="rec-summary-panel" style="display:none;">
+      <div class="panel-body">
+        <div class="grid-cards" id="rec-summary-cards" style="margin-bottom:0;"></div>
+      </div>
+    </div>
+
+    <div class="panel" id="rec-results-panel" style="display:none;">
+      <div class="panel-body">
+        <table>
+          <thead>
+            <tr><th>Post Date</th><th>Ledger Date</th><th>Check # / Ref</th><th>Description</th><th class="amt-col">Bank Amount</th><th>Register Match</th><th>Status</th><th class="no-print">Action</th></tr>
+          </thead>
+          <tbody id="rec-body"><tr><td colspan="8" class="empty">Run a reconciliation to see results.</td></tr></tbody>
+        </table>
+        <div class="status-msg" id="reconcile-summary"></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- shared VIEW modal -->
+<div class="modal-overlay" id="view-modal">
+  <div class="modal">
+    <div class="modal-head"><h3 id="view-modal-title">Details</h3><button class="x" onclick="closeModal('view-modal')">✕</button></div>
+    <div class="modal-body" id="view-modal-body"></div>
+    <div class="modal-foot">
+      <button class="ghost" onclick="closeModal('view-modal')">Close</button>
+      <button class="primary" id="view-modal-edit-btn">Edit</button>
+    </div>
+  </div>
+</div>
+
+<!-- shared EDIT modal -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <div class="modal-head"><h3 id="edit-modal-title">Edit</h3><button class="x" onclick="closeModal('edit-modal')">✕</button></div>
+    <form id="edit-modal-form">
+      <div class="modal-body" id="edit-modal-body"></div>
+      <div class="modal-foot">
+        <button type="button" class="ghost" onclick="closeModal('edit-modal')">Cancel</button>
+        <button type="submit" class="primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Add-to-Register modal, used from Bank Stmt Reconciliation -->
+<div class="modal-overlay" id="rec-add-modal">
+  <div class="modal">
+    <div class="modal-head"><h3>Add to Check Register</h3><button class="x" onclick="closeModal('rec-add-modal')">✕</button></div>
+    <form id="rec-add-form">
+      <div class="modal-body">
+        <p class="status-msg" id="rec-add-bank-line" style="margin-bottom:14px;"></p>
+        <div class="form-row">
+          <div><label>Date</label><input type="date" name="date" id="rec-add-date" required></div>
+          <div><label>Method</label><input type="text" id="rec-add-method" disabled></div>
+          <div id="rec-add-checknum-wrap"><label>Check #</label><input type="text" id="rec-add-checknum" disabled></div>
+          <div><label>Amount</label><input type="text" id="rec-add-amount" disabled></div>
+        </div>
+        <div class="form-row">
+          <div style="grid-column:1/-1;">
+            <label>Payee — confirm this is correct before saving</label>
+            <input type="text" name="payee" id="rec-add-payee" required autocomplete="off">
+          </div>
+        </div>
+        <div class="form-row">
+          <div style="grid-column:1/-1;">
+            <label>Category</label>
+            <input type="text" name="category" id="rec-add-category" list="category-list" required autocomplete="off">
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="ghost" onclick="closeModal('rec-add-modal')">Cancel</button>
+        <button type="submit" class="primary">Add to Register</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Owner Loans — per-person summary -->
+<div class="modal-overlay" id="person-loan-modal">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-head"><h3 id="person-loan-title">Loan Activity</h3><button class="x" onclick="closeModal('person-loan-modal')">✕</button></div>
+    <div class="modal-body" id="person-loan-body"></div>
+    <div class="modal-foot">
+      <button class="ghost" onclick="closeModal('person-loan-modal')">Close</button>
+      <button class="ghost" onclick="printPersonSummary()">🖨 Print</button>
+      <button class="ghost" onclick="emailPersonSummary()">✉ Email</button>
+    </div>
+  </div>
+</div>
+
+<!-- hidden print-only rendering of the person summary (modal-overlay itself is display:none in print) -->
+<div class="view" id="person-loan-print" style="display:none;">
+  <h2 id="person-loan-print-title" style="font-family:'Source Serif 4',Georgia,serif;"></h2>
+  <div id="person-loan-print-body"></div>
+</div>
+
+<footer class="note">
+  Ledger module — separate codebase from the Contract Manager, same Supabase project. Sales &amp; Deposits read-only from <span class="mono">contracts</span>/<span class="mono">payments</span>; Expenses, Payroll, and Owner Loans are new tables (see migration.sql).
+</footer>
+
+<script>
+/* ---------------------------------------------------------
+   CONFIG — reuse the same Supabase project as the Contract
+   Manager. Paste the same URL / anon key that app uses.
+--------------------------------------------------------- */
+const SUPABASE_URL = 'https://qfxyzzhsqibirbgwerru.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFmeHl6emhzcWliaXJiZ3dlcnJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MDE5MzksImV4cCI6MjA5ODk3NzkzOX0.MXmwiOQMiYvxF2dCWhi2RWF6xxqDX9y0GvRS6Efb010';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const fmt = n => (n ?? 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+const money = (n, allowNeg=true) => {
+  const v = Number(n) || 0;
+  const cls = allowNeg && v < 0 ? 'amt neg' : 'amt';
+  return `<span class="${cls}">$${fmt(Math.abs(v))}${v<0?' (owed)':''}</span>`;
+};
+const thisMonth = () => new Date().toISOString().slice(0,7);
+const monthRange = (ym) => {
+  const [y,m] = ym.split('-').map(Number);
+  const start = `${ym}-01`;
+  const end = new Date(y, m, 0).toISOString().slice(0,10);
+  return {start, end};
+};
+
+/* ---------------------------------------------------------
+   NAV
+--------------------------------------------------------- */
+document.querySelectorAll('nav.tabs button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('view-'+btn.dataset.view).classList.add('active');
+    loadView(btn.dataset.view);
+  });
+});
+
+['dash-month','sales-month','exp-month','payroll-month'].forEach(id=>{
+  const el = document.getElementById(id);
+  if (el) el.value = thisMonth();
+});
+
+const currentYear = new Date().getFullYear();
+function yearRange(y){
+  return {start: `${y}-01-01`, end: `${y}-12-31`};
+}
+
+/* ---------------------------------------------------------
+   PERIOD CONTROLS (Month / Year to Date / All Time)
+   Shared across every tab's date filter — prefix matches the
+   element id prefix, e.g. 'sales' -> sales-mode/sales-month/sales-year
+--------------------------------------------------------- */
+function initPeriodControls(prefix, onChange){
+  const modeSel = document.getElementById(prefix+'-mode');
+  const monthEl = document.getElementById(prefix+'-month');
+  const yearSel = document.getElementById(prefix+'-year');
+  if (!modeSel || !yearSel) return;
+
+  for (let y = currentYear; y >= currentYear - 4; y--){
+    const opt = document.createElement('option');
+    opt.value = y; opt.textContent = y;
+    yearSel.appendChild(opt);
+  }
+  yearSel.value = currentYear;
+
+  modeSel.addEventListener('change', () => {
+    const mode = modeSel.value;
+    if (monthEl) monthEl.style.display = mode === 'month' ? '' : 'none';
+    yearSel.style.display = mode === 'ytd' ? '' : 'none';
+    onChange();
+  });
+  yearSel.addEventListener('change', onChange);
+  if (monthEl) monthEl.addEventListener('change', onChange);
+}
+
+// Returns {start,end} for the given prefix's controls, or null for
+// 'all' mode (used by Loan Activity's "All Time" option).
+function getPeriodRange(prefix){
+  const modeSel = document.getElementById(prefix+'-mode');
+  const mode = modeSel ? modeSel.value : 'month';
+  if (mode === 'all') return null;
+  if (mode === 'ytd'){
+    const yearSel = document.getElementById(prefix+'-year');
+    return yearRange(yearSel.value || currentYear);
+  }
+  const monthEl = document.getElementById(prefix+'-month');
+  return monthRange((monthEl && monthEl.value) || thisMonth());
+}
+
+initPeriodControls('dash', () => loadDashboard());
+document.getElementById('dash-mode').addEventListener('change', e=>{
+  document.getElementById('dash-heading').textContent = e.target.value === 'ytd' ? 'Year to Date Summary' : 'Monthly Summary';
+});
+
+/* ---------------------------------------------------------
+   DASHBOARD
+--------------------------------------------------------- */
+async function loadDashboard(){
+  const {start, end} = getPeriodRange('dash');
+
+  const [{data:contracts, count:contractsCount}, {data:payments}, {data:expenses}, {data:payroll}, {data:loans}] = await Promise.all([
+    sb.from('contracts').select('id, contract_number, customer, contract_date, proforma_total, final_total, status', {count:'exact'})
+      .gte('contract_date', start).lte('contract_date', end)
+      .neq('status', 'open'),
+    sb.from('payments').select('amount, payment_date').gte('payment_date', start).lte('payment_date', end),
+    sb.from('expenses').select('amount, category, date').gte('date', start).lte('date', end),
+    sb.from('payroll_entries').select('net, pay_date').gte('pay_date', start).lte('pay_date', end),
+    sb.from('owner_loans').select('person, direction, amount'),
+  ]);
+
+  // Sales = Pro Forma invoices issued + Sales Order (final) invoices issued.
+  // Open contracts are excluded (per confirmation from Hazel) — only once a
+  // contract's Pro Forma has gone out is it "guaranteed a payment", so it
+  // shouldn't show as Sales until then. A contract counts at its final
+  // total once invoiced, or its pro forma total before that.
+  const sumSales = (contracts||[]).reduce((s,r)=>s+(Number(r.final_total)||Number(r.proforma_total)||0),0);
+  const sumDeposits = (payments||[]).reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const sumExpenses = (expenses||[]).reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const sumLiabilities = (expenses||[]).filter(r=>isLiabilityCategory(r.category)).reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const sumPettyCash = (expenses||[]).filter(r=>r.category==='Petty Cash').reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const sumPayroll = (payroll||[]).reduce((s,r)=>s+(Number(r.net)||0),0);
+
+  let loanBalance = 0;
+  (loans||[]).forEach(r=>{
+    loanBalance += r.direction === 'loan_in' ? Number(r.amount) : -Number(r.amount);
+  });
+
+  // Supabase's REST API caps a single request at 1000 rows by default —
+  // if the true count is higher than what came back, the Sales total
+  // above is silently short. Surface that loudly instead of guessing.
+  const truncated = contractsCount != null && contracts && contractsCount > contracts.length;
+  const salesLabel = document.getElementById('d-sales');
+  salesLabel.innerHTML = money(sumSales, false) + (truncated
+    ? ` <span class="neg" style="font-size:11px;" title="Supabase returned ${contracts.length} of ${contractsCount} matching contracts — this total is understated.">⚠ partial (${contracts.length}/${contractsCount})</span>`
+    : '');
+  document.getElementById('d-deposits').innerHTML = money(sumDeposits, false);
+  document.getElementById('d-expenses').innerHTML = money(sumExpenses, false);
+  document.getElementById('d-liabilities').innerHTML = money(sumLiabilities, false);
+  document.getElementById('d-pettycash').innerHTML = money(sumPettyCash, false);
+  document.getElementById('d-payroll').innerHTML = money(sumPayroll, false);
+  document.getElementById('d-loans').innerHTML = money(loanBalance);
+  document.getElementById('d-net').innerHTML = money(sumDeposits - sumExpenses - sumPayroll);
+
+  window._salesDetailContracts = contracts || [];
+  if (document.getElementById('sales-detail-panel').style.display !== 'none'){
+    renderSalesDetail();
+  }
+
+  const byCat = {};
+  (expenses||[]).forEach(r=>{ byCat[r.category] = (byCat[r.category]||0) + Number(r.amount); });
+  const rows = Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('dash-category-body').innerHTML = rows.length
+    ? rows.map(([cat,amt])=>`<tr><td>${cat}</td><td class="amt-col">${money(amt,false)}</td></tr>`).join('')
+    : '<tr><td colspan="2" class="empty">No expenses logged for this month.</td></tr>';
+}
+
+function renderSalesDetail(){
+  const list = window._salesDetailContracts || [];
+  const body = document.getElementById('sales-detail-body');
+  const summary = document.getElementById('sales-detail-summary');
+  if (!list.length){
+    body.innerHTML = '<tr><td colspan="9" class="empty">No contracts in this period.</td></tr>';
+    summary.textContent = '0 rows · Total: $0.00';
+    return;
+  }
+  const sorted = [...list].sort((a,b)=>(a.contract_date||'').localeCompare(b.contract_date||''));
+  body.innerHTML = sorted.map(c=>{
+    const usedFinal = c.final_total != null && c.final_total !== 0;
+    const value = usedFinal ? c.final_total : (c.proforma_total || 0);
+    return `<tr>
+      <td>${c.contract_number||'—'}</td>
+      <td>${c.customer||''}</td>
+      <td>${c.contract_date||''}</td>
+      <td class="amt-col">${c.proforma_total!=null?money(c.proforma_total,false):'—'}</td>
+      <td class="amt-col">${c.final_total!=null?money(c.final_total,false):'—'}</td>
+      <td><span class="badge" style="background:${usedFinal?'var(--green)':'var(--gold)'};">${usedFinal?'Final':'Pro Forma'}</span></td>
+      <td class="amt-col">${money(value,false)}</td>
+      <td>${c.status||''}</td>
+      <td><button class="link" onclick="openContractView('${c.id}')">View</button></td>
+    </tr>`;
+  }).join('');
+  const total = list.reduce((s,c)=>s+(Number(c.final_total)||Number(c.proforma_total)||0),0);
+  summary.textContent = `${list.length} contract${list.length===1?'':'s'} · Total: $${fmt(total)}`;
+}
+
+document.getElementById('sales-detail-toggle').addEventListener('click', () => {
+  const panel = document.getElementById('sales-detail-panel');
+  const showing = panel.style.display !== 'none';
+  panel.style.display = showing ? 'none' : '';
+  if (!showing) renderSalesDetail();
+});
+
+/* ---------------------------------------------------------
+   SALES & DEPOSITS (reads contracts + payments — no writes
+   except tagging deposit_reference/deposit_date)
+--------------------------------------------------------- */
+async function loadSales(){
+  const {start,end} = getPeriodRange('sales');
+
+  const [{data:payData, error:payError}, {data:salesData, error:salesError}] = await Promise.all([
+    sb.from('payments')
+      .select('id, amount, payment_date, invoice_number, customer, deposit_reference, deposit_date, contract_id')
+      .gte('payment_date', start).lte('payment_date', end)
+      .order('payment_date', {ascending:true}),
+    sb.from('contracts')
+      .select('id, contract_number, invoice_number, customer, contract_date, final_total, proforma_total, status')
+      .gte('contract_date', start).lte('contract_date', end)
+      .neq('status', 'open'),
+  ]);
+
+  const body = document.getElementById('sales-body');
+  const summary = document.getElementById('sales-summary');
+  if (payError || salesError){ body.innerHTML = `<tr><td colspan="11" class="empty">${(payError||salesError).message}</td></tr>`; summary.textContent=''; return; }
+
+  let payments = payData || [];
+  const sales = salesData || [];
+
+  // Sale Amt for a contract — final_total once invoiced, otherwise
+  // proforma_total. Open contracts never appear here since they're
+  // excluded from the query already.
+  const saleAmtOf = c => Number(c.final_total) || Number(c.proforma_total) || 0;
+  const saleAmtByContract = {};
+  const saleDateByContract = {};
+  sales.forEach(c => { saleAmtByContract[c.id] = saleAmtOf(c); saleDateByContract[c.id] = c.contract_date; });
+
+  // Some deposits in this period pay off a sale from an earlier/later
+  // period — fetch those linked contracts too so the row can still show
+  // its Sale Amt and Sale Date even though the contract itself falls
+  // outside the selected range.
+  const paymentContractIds = [...new Set(payments.map(r=>r.contract_id).filter(Boolean))];
+  const missingIds = paymentContractIds.filter(id => !(id in saleAmtByContract));
+  if (missingIds.length){
+    const {data: extra} = await sb.from('contracts').select('id, contract_date, final_total, proforma_total, status').in('id', missingIds);
+    (extra||[]).forEach(c=>{
+      if (c.status !== 'open'){ saleAmtByContract[c.id] = saleAmtOf(c); saleDateByContract[c.id] = c.contract_date; }
+    });
+  }
+
+  payments = applySearch(payments, document.getElementById('sales-search').value, ['invoice_number','customer','deposit_reference']);
+  const salesSearchTerm = document.getElementById('sales-search').value;
+  const searchedSales = applySearch(sales, salesSearchTerm, ['invoice_number','contract_number','customer']);
+
+  // Sales with no payment at all in this period still need a row —
+  // otherwise an invoice sits invisible until someone pays it.
+  const paidContractIds = new Set(payments.map(r=>r.contract_id).filter(Boolean));
+  const unpaidSales = searchedSales.filter(c => !paidContractIds.has(c.id));
+
+  if (!payments.length && !unpaidSales.length){
+    body.innerHTML = '<tr><td colspan="11" class="empty">No sales or deposits in this range.</td></tr>';
+    summary.textContent = '0 rows · Total: $0.00';
+    return;
+  }
+
+  // total per deposit reference, so an ungrouped row can still show what
+  // bank deposit it belongs to alongside its own payment amount
+  const depositTotals = {};
+  payments.forEach(r=>{
+    if (r.deposit_reference) depositTotals[r.deposit_reference] = (depositTotals[r.deposit_reference]||0) + Number(r.amount);
+  });
+
+  const grouped = document.getElementById('sales-group').value === 'deposit';
+  let rows = payments;
+  if (grouped){
+    const map = {};
+    payments.forEach(r=>{
+      const key = r.deposit_reference || `single-${r.id}`;
+      if (!map[key]) map[key] = {deposit_date:r.deposit_date||r.payment_date, deposit_reference:r.deposit_reference||'—', invoices:[], customer:r.customer, amount:0, payments:[], contractIds:new Set()};
+      map[key].invoices.push(r.invoice_number);
+      map[key].amount += Number(r.amount);
+      map[key].payments.push(r);
+      if (r.contract_id) map[key].contractIds.add(r.contract_id);
+    });
+    rows = Object.values(map);
+  }
+
+  const depositRowsHtml = rows.map((r,i)=>{
+    if (grouped){
+      const saleAmt = [...r.contractIds].reduce((s,id)=>s+(saleAmtByContract[id]||0),0);
+      const saleDate = [...r.contractIds].map(id=>saleDateByContract[id]).filter(Boolean).sort()[0];
+      const balance = saleAmt - r.amount;
+      let actions = `<button class="link" onclick="openDepositView(${i})">View</button>`;
+      if (r.payments.length === 1){
+        const only = r.payments[0];
+        rowCache.payments[only.id] = only;
+        actions += ` <button class="link" onclick="openEdit('payments','${only.id}')">Edit</button>
+                     <button class="link danger" onclick="deleteRow('payments','${only.id}')">Delete</button>`;
+      }
+      return `<tr>
+        <td>${saleDate||'—'}</td>
+        <td>${r.deposit_date||''}</td>
+        <td>${r.deposit_reference}</td>
+        <td class="amt-col">${money(r.amount,false)}</td>
+        <td>${r.invoices.filter(Boolean).join(' / ')||'—'}</td>
+        <td>${r.customer||''}</td>
+        <td class="amt-col">${r.contractIds.size ? money(saleAmt,false) : '—'}</td>
+        <td class="amt-col">—</td>
+        <td>—</td>
+        <td class="amt-col">${r.contractIds.size ? money(balance) : '—'}</td>
+        <td class="row-actions">${actions}</td>
+      </tr>`;
+    }
+    const depAmt = r.deposit_reference ? depositTotals[r.deposit_reference] : null;
+    const saleAmt = r.contract_id ? saleAmtByContract[r.contract_id] : null;
+    const saleDate = r.contract_id ? saleDateByContract[r.contract_id] : null;
+    const balance = saleAmt != null ? saleAmt - Number(r.amount) : null;
+    rowCache.payments[r.id] = r;
+    return `<tr>
+      <td>${saleDate||'—'}</td>
+      <td><input type="date" value="${r.deposit_date||''}" data-id="${r.id}" data-field="deposit_date" class="tag-input" style="max-width:130px;"></td>
+      <td><input type="text" value="${r.deposit_reference||''}" data-id="${r.id}" data-field="deposit_reference" class="tag-input" style="max-width:110px;" placeholder="deposit ref"></td>
+      <td class="amt-col">${depAmt != null ? money(depAmt,false) : '—'}</td>
+      <td>${r.invoice_number||''}</td>
+      <td>${r.customer||''}</td>
+      <td class="amt-col">${saleAmt != null ? money(saleAmt,false) : '—'}</td>
+      <td class="amt-col">${money(r.amount,false)}</td>
+      <td>${r.payment_date||''}</td>
+      <td class="amt-col">${balance != null ? money(balance) : '—'}</td>
+      <td class="row-actions">
+        <button class="link" onclick="openContractView('${r.contract_id||''}')">View</button>
+        <button class="link" data-save="${r.id}">Save</button>
+        <button class="link" onclick="openEdit('payments','${r.id}')">Edit</button>
+        <button class="link danger" onclick="deleteRow('payments','${r.id}')">Delete</button>
+      </td>
+    </tr>`;
+  });
+
+  // Sales-only rows — invoiced this period, nothing deposited against
+  // them yet. Deposit-side columns show "—"; no payment record exists
+  // yet so there's nothing here to Edit/Delete — Balance is the full
+  // Sale Amt since nothing's been paid.
+  const unpaidRowsHtml = unpaidSales.map(c=>`
+    <tr>
+      <td>${c.contract_date||''}</td>
+      <td>—</td><td>—</td><td class="amt-col">—</td>
+      <td>${c.invoice_number || c.contract_number || ''}</td>
+      <td>${c.customer||''}</td>
+      <td class="amt-col">${money(saleAmtByContract[c.id],false)}</td>
+      <td class="amt-col">—</td>
+      <td>—</td>
+      <td class="amt-col">${money(saleAmtByContract[c.id])}</td>
+      <td class="row-actions"><button class="link" onclick="openContractView('${c.id}')">View</button></td>
+    </tr>`);
+
+  body.innerHTML = depositRowsHtml.join('') + unpaidRowsHtml.join('');
+
+  window._salesGroupedRows = grouped ? rows : null;
+
+  const totalDeposits = payments.reduce((s,r)=>s+(Number(r.amount)||0), 0);
+  const totalSales = searchedSales.reduce((s,c)=>s+saleAmtOf(c), 0);
+  const rowCount = rows.length + unpaidSales.length;
+  summary.textContent = grouped
+    ? `${rows.length} deposit${rows.length===1?'':'s'} + ${unpaidSales.length} unpaid sale${unpaidSales.length===1?'':'s'} · Deposits Total: $${fmt(totalDeposits)} · Sales Total: $${fmt(totalSales)}`
+    : `${rowCount} row${rowCount===1?'':'s'} · Deposits Total: $${fmt(totalDeposits)} · Sales Total: $${fmt(totalSales)}`;
+
+  body.querySelectorAll('button[data-save]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.save;
+      const row = btn.closest('tr');
+      const dep_date = row.querySelector('[data-field="deposit_date"]').value || null;
+      const dep_ref = row.querySelector('[data-field="deposit_reference"]').value || null;
+      const {error} = await sb.from('payments').update({deposit_date:dep_date, deposit_reference:dep_ref}).eq('id', id);
+      btn.textContent = error ? 'Error' : 'Saved';
+      setTimeout(()=>btn.textContent='Save', 1200);
+    });
+  });
+}
+initPeriodControls('sales', () => loadSales());
+document.getElementById('sales-group').addEventListener('change', loadSales);
+document.getElementById('sales-search').addEventListener('input', loadSales);
+
+/* ---------------------------------------------------------
+   SALES & DEPOSITS — view underlying contract / deposit breakdown
+--------------------------------------------------------- */
+function openGenericView(title, linesHtml){
+  document.getElementById('view-modal-title').textContent = title;
+  document.getElementById('view-modal-body').innerHTML = linesHtml;
+  const editBtn = document.getElementById('view-modal-edit-btn');
+  editBtn.style.display = 'none';
+  document.getElementById('view-modal').classList.add('open');
+}
+
+async function openContractView(contractId){
+  if (!contractId){
+    openGenericView('Contract', '<p class="empty">No linked contract on this payment.</p>');
+    return;
+  }
+  const {data, error} = await sb.from('contracts').select('*').eq('id', contractId).single();
+  if (error || !data){
+    openGenericView('Contract', `<p class="empty">${error?.message || 'Contract not found.'}</p>`);
+    return;
+  }
+  // read-only: computed/pipeline fields owned by the Contract Manager
+  const readOnly = [
+    ['Status', data.status], ['Order Type', data.order_type],
+    ['Proforma Total', data.proforma_total != null ? `$${fmt(data.proforma_total)}` : null],
+    ['Final Total', data.final_total != null ? `$${fmt(data.final_total)}` : null],
+  ];
+  // editable: reference numbers, dates, notes — safe to fix here without
+  // desyncing anything the Contract Manager computes
+  const editable = [
+    {key:'contract_number', label:'Contract #', type:'text'},
+    {key:'invoice_number', label:'Invoice #', type:'text'},
+    {key:'customer', label:'Customer', type:'text'},
+    {key:'container_number', label:'Container', type:'text'},
+    {key:'booking_number', label:'Booking #', type:'text'},
+    {key:'bol_number', label:'BOL #', type:'text'},
+    {key:'seal_number', label:'Seal #', type:'text'},
+    {key:'contract_date', label:'Contract Date', type:'date'},
+    {key:'pickup_date', label:'Pickup Date', type:'date'},
+    {key:'final_invoice_date', label:'Final Invoice Date', type:'date'},
+    {key:'reconciliation_date', label:'Reconciliation Date', type:'date'},
+    {key:'notes', label:'Notes', type:'text'},
+  ];
+
+  const roHtml = readOnly.map(([k,v])=>`<div class="view-line"><span class="k">${k}</span><span class="v">${v||'—'}</span></div>`).join('');
+  document.getElementById('view-modal-title').textContent = `Contract ${data.contract_number || ''}`;
+  document.getElementById('view-modal-body').innerHTML =
+    roHtml + `<p class="status-msg" style="margin-top:10px;">Status, order type, and totals are computed by the Contract Manager — edit those there.</p>`;
+  document.getElementById('view-modal-edit-btn').style.display = '';
+  document.getElementById('view-modal-edit-btn').onclick = () => { closeModal('view-modal'); openContractEdit(data, editable); };
+  document.getElementById('view-modal').classList.add('open');
+}
+
+function openContractEdit(data, editable){
+  document.getElementById('edit-modal-title').textContent = `Edit Contract ${data.contract_number || ''}`;
+  document.getElementById('edit-modal-body').innerHTML =
+    `<p class="status-msg" style="margin-bottom:10px;">Reference numbers, dates, and notes only — status and totals stay in the Contract Manager.</p>` +
+    editable.map(f=>{
+      const val = data[f.key] ?? '';
+      return `<label>${f.label}</label><input type="${f.type}" name="${f.key}" value="${val}" style="margin-bottom:10px;">`;
+    }).join('');
+
+  const form = document.getElementById('edit-modal-form');
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const payload = Object.fromEntries(fd.entries());
+    const {error} = await sb.from('contracts').update(payload).eq('id', data.id);
+    if (error){ alert('Could not save changes: ' + error.message); return; }
+    closeModal('edit-modal');
+    loadSales();
+  };
+  document.getElementById('edit-modal').classList.add('open');
+}
+
+function openDepositView(i){
+  const dep = (window._salesGroupedRows || [])[i];
+  if (!dep) return;
+  dep.payments.forEach(p => { rowCache.payments[p.id] = p; });
+  const linesHtml = dep.payments.map(p=>`
+    <div class="view-line">
+      <span class="k">${p.invoice_number || '—'} · ${p.customer || ''}</span>
+      <span class="v">
+        $${fmt(p.amount)}
+        <button class="link" style="margin-left:8px;" onclick="closeModal('view-modal');openContractView('${p.contract_id||''}')">View contract</button>
+        <button class="link" style="margin-left:8px;" onclick="closeModal('view-modal');openEdit('payments','${p.id}')">Edit</button>
+        <button class="link danger" style="margin-left:8px;" onclick="deleteRow('payments','${p.id}').then(ok=>{if(ok)closeModal('view-modal');})">Delete</button>
+      </span>
+    </div>`).join('');
+  document.getElementById('view-modal-edit-btn').style.display = 'none';
+  openGenericView(`Deposit ${dep.deposit_reference} — ${dep.deposit_date || ''}`, linesHtml);
+}
+
+
+
+/* ---------------------------------------------------------
+   EXPENSES
+--------------------------------------------------------- */
+document.getElementById('exp-method').addEventListener('change', e=>{
+  document.getElementById('exp-checknum-wrap').style.display = e.target.value === 'check' ? '' : 'none';
+});
+
+document.getElementById('expense-form').addEventListener('submit', async e=>{
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const payload = Object.fromEntries(fd.entries());
+  payload.amount = Number(payload.amount);
+  if (payload.payment_method !== 'check') payload.check_number = null;
+
+  if (!payload.post_date) payload.post_date = null;
+  const {error} = await sb.from('expenses').insert(payload);
+  const status = document.getElementById('expense-status');
+  if (error){ status.textContent = error.message; status.classList.add('err'); }
+  else { status.textContent = 'Saved.'; status.classList.remove('err'); e.target.reset(); loadExpenses(); loadCategoryFilter('exp-filter-category'); }
+});
+
+async function loadCategoryFilter(selectId, methodFilter){
+  let q = sb.from('expenses').select('category');
+  if (methodFilter) q = q.eq('payment_method', methodFilter);
+  const {data} = await q;
+  const cats = [...new Set((data||[]).map(r=>r.category))].sort();
+  const sel = document.getElementById(selectId);
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All categories</option>' + cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+  sel.value = current;
+}
+
+// Client-side text search — filters an already-fetched row set by a
+// case-insensitive substring match across the given fields.
+function applySearch(data, term, fields){
+  if (!term) return data;
+  const t = term.trim().toLowerCase();
+  if (!t) return data;
+  return data.filter(r => fields.some(f => (r[f] ?? '').toString().toLowerCase().includes(t)));
+}
+
+/* ---------------------------------------------------------
+   VIEW / EDIT / DELETE — shared across Expenses, Payroll, Owner Loans
+--------------------------------------------------------- */
+const rowCache = {expenses:{}, payroll_entries:{}, owner_loans:{}, payments:{}};
+
+const TABLE_CONFIG = {
+  payments: {
+    label: 'payment',
+    title: 'Payment',
+    fields: [
+      {key:'payment_date', label:'Payment Date', type:'date'},
+      {key:'invoice_number', label:'Invoice #', type:'text'},
+      {key:'customer', label:'Customer', type:'text'},
+      {key:'amount', label:'Paid Amount', type:'number'},
+      {key:'reference', label:'Reference', type:'text'},
+      {key:'payment_type', label:'Payment Type', type:'text'},
+      {key:'deposit_reference', label:'Deposit Ref', type:'text'},
+      {key:'deposit_date', label:'Deposit Date', type:'date'},
+      {key:'notes', label:'Notes', type:'text'},
+    ],
+    reload: () => loadSales(),
+  },
+  expenses: {
+    label: 'expense',
+    title: 'Expense',
+    fields: [
+      {key:'date', label:'Date', type:'date'},
+      {key:'post_date', label:'Post Date', type:'date'},
+      {key:'payment_method', label:'Method', type:'select', options:['check','electronic']},
+      {key:'check_number', label:'Check #', type:'text'},
+      {key:'payee', label:'Payee', type:'text'},
+      {key:'category', label:'Category', type:'text'},
+      {key:'amount', label:'Amount', type:'number'},
+      {key:'notes', label:'Notes', type:'text'},
+    ],
+    reload: () => loadExpenses(),
+  },
+  payroll_entries: {
+    label: 'payroll entry',
+    title: 'Payroll Entry',
+    fields: [
+      {key:'employee_name', label:'Employee', type:'text'},
+      {key:'pay_date', label:'Pay Date', type:'date'},
+      {key:'check_number', label:'Check # / Method', type:'text'},
+      {key:'gross', label:'Gross', type:'number'},
+      {key:'fit', label:'FIT', type:'number'},
+      {key:'ssee', label:'SS EE', type:'number'},
+      {key:'med_ee', label:'Med EE', type:'number'},
+      {key:'tax', label:'Other Tax', type:'number'},
+      {key:'net', label:'Net', type:'number'},
+    ],
+    reload: () => loadPayroll(),
+  },
+  owner_loans: {
+    label: 'loan entry',
+    title: 'Loan Activity',
+    fields: [
+      {key:'person', label:'Person', type:'text'},
+      {key:'direction', label:'Direction', type:'select', options:['loan_in','repayment']},
+      {key:'date', label:'Date', type:'date'},
+      {key:'amount', label:'Amount', type:'number'},
+      {key:'reference', label:'Reference', type:'text'},
+      {key:'notes', label:'Notes', type:'text'},
+    ],
+    reload: () => loadLoans(),
+  },
+};
+
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+
+/* ---------------------------------------------------------
+   PRINT / EMAIL — works from any tab
+--------------------------------------------------------- */
+function printView(viewKey){
+  const el = document.getElementById('view-'+viewKey);
+  if (!el) return;
+  el.classList.add('printing');
+  const cleanup = () => el.classList.remove('printing');
+  window.addEventListener('afterprint', cleanup, {once:true});
+  window.print();
+  setTimeout(cleanup, 2000); // fallback for browsers that skip afterprint
+}
+
+const VIEW_TITLES = {dashboard:'Dashboard Summary', sales:'Sales & Deposits', expenses:'Checks Register', ewithdrawals:'E-Withdrawals', liabilities:'Liabilities', pettycash:'Petty Cash', payroll:'Payroll History', loans:'Owner Loans', reconcile:'Bank Stmt Reconciliation'};
+const VIEW_SUMMARY_IDS = {sales:'sales-summary', expenses:'expense-summary', ewithdrawals:'ewithdrawal-summary', liabilities:'liability-summary', pettycash:'pettycash-summary', payroll:'payroll-summary', loans:'loan-summary', reconcile:'reconcile-summary'};
+
+function emailView(viewKey){
+  const lines = [];
+  if (viewKey === 'dashboard'){
+    lines.push(document.getElementById('dash-heading').textContent);
+    lines.push('Sales: ' + document.getElementById('d-sales').textContent);
+    lines.push('Deposits: ' + document.getElementById('d-deposits').textContent);
+    lines.push('Expenses: ' + document.getElementById('d-expenses').textContent);
+    lines.push('Payroll: ' + document.getElementById('d-payroll').textContent);
+    lines.push('Owner Loan Balance: ' + document.getElementById('d-loans').textContent);
+    lines.push('Net Cash Movement: ' + document.getElementById('d-net').textContent);
+  } else {
+    const el = document.getElementById(VIEW_SUMMARY_IDS[viewKey]);
+    if (el) lines.push(el.textContent);
+  }
+  lines.push('');
+  lines.push(`For the full itemized table, open the Ledger → ${VIEW_TITLES[viewKey]} → Print → "Save as PDF" to attach.`);
+  const subject = encodeURIComponent(`Excell Cores Ledger — ${VIEW_TITLES[viewKey]}`);
+  const body = encodeURIComponent(lines.join('\n'));
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+}
+
+function rowActionButtons(table, id){
+  return `<div class="row-actions">
+    <button class="link" onclick="openView('${table}','${id}')">View</button>
+    <button class="link" onclick="openEdit('${table}','${id}')">Edit</button>
+    <button class="link danger" onclick="deleteRow('${table}','${id}')">Delete</button>
+  </div>`;
+}
+
+function openView(table, id){
+  const cfg = TABLE_CONFIG[table];
+  const row = rowCache[table][id];
+  if (!row) return;
+  document.getElementById('view-modal-title').textContent = cfg.title;
+  document.getElementById('view-modal-body').innerHTML = cfg.fields.map(f=>{
+    let val = row[f.key];
+    val = (f.type === 'number') ? `$${fmt(val||0)}` : (val === null || val === '' || val === undefined ? '—' : val);
+    return `<div class="view-line"><span class="k">${f.label}</span><span class="v">${val}</span></div>`;
+  }).join('');
+  document.getElementById('view-modal-edit-btn').style.display = '';
+  document.getElementById('view-modal-edit-btn').onclick = () => { closeModal('view-modal'); openEdit(table, id); };
+  document.getElementById('view-modal').classList.add('open');
+}
+
+function openEdit(table, id){
+  const cfg = TABLE_CONFIG[table];
+  const row = rowCache[table][id];
+  if (!row) return;
+  document.getElementById('edit-modal-title').textContent = 'Edit ' + cfg.title;
+  document.getElementById('edit-modal-body').innerHTML = cfg.fields.map(f=>{
+    const val = row[f.key] ?? '';
+    if (f.type === 'select'){
+      return `<label>${f.label}</label><select name="${f.key}" style="margin-bottom:10px;">${f.options.map(o=>`<option value="${o}" ${o===val?'selected':''}>${o}</option>`).join('')}</select>`;
+    }
+    return `<label>${f.label}</label><input type="${f.type}" name="${f.key}" value="${val}" ${f.type==='number'?'step="0.01"':''} style="margin-bottom:10px;">`;
+  }).join('');
+
+  const form = document.getElementById('edit-modal-form');
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const payload = Object.fromEntries(fd.entries());
+    cfg.fields.forEach(f => { if (f.type === 'number') payload[f.key] = Number(payload[f.key] || 0); });
+    const {error} = await sb.from(table).update(payload).eq('id', id);
+    if (error){ alert('Could not save changes: ' + error.message); return; }
+    closeModal('edit-modal');
+    cfg.reload();
+  };
+  document.getElementById('edit-modal').classList.add('open');
+}
+
+async function deleteRow(table, id){
+  const cfg = TABLE_CONFIG[table];
+  if (!confirm(`Delete this ${cfg.label}? This can't be undone.`)) return false;
+  const {error} = await sb.from(table).delete().eq('id', id);
+  if (error){ alert('Could not delete: ' + error.message); return false; }
+  cfg.reload();
+  return true;
+}
+
+document.querySelectorAll('.modal-overlay').forEach(m=>{
+  m.addEventListener('click', e=>{ if (e.target === m) m.classList.remove('open'); });
+});
+
+async function updateExpenseCategoryInline(id, value, inputEl){
+  value = value.trim();
+  if (!value){ inputEl.style.borderColor = 'var(--red-ink)'; return; }
+  const prev = inputEl.defaultValue;
+  inputEl.disabled = true;
+  const {error} = await sb.from('expenses').update({category: value}).eq('id', id);
+  inputEl.disabled = false;
+  if (error){
+    alert('Could not update category: ' + error.message);
+    inputEl.value = prev;
+    return;
+  }
+  inputEl.defaultValue = value;
+  if (rowCache.expenses && rowCache.expenses[id]) rowCache.expenses[id].category = value;
+  loadCategoryFilter('exp-filter-category');
+  // Refresh just the summary panel + totals rather than the whole table,
+  // so the row the user is actively editing doesn't jump/reload under them.
+  refreshExpenseSummaryOnly();
+}
+
+function refreshExpenseSummaryOnly(){
+  const rows = Object.values(rowCache.expenses || {});
+  const byCat = {};
+  rows.forEach(r=>{ byCat[r.category] = (byCat[r.category]||0) + Number(r.amount); });
+  const catRows = Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+  const total = rows.reduce((s,r)=>s+(Number(r.amount)||0),0);
+  document.getElementById('exp-summary-body').innerHTML = catRows.length
+    ? catRows.map(([cat,amt])=>`<tr class="cat-summary-row" onclick="filterExpensesByCategory('${cat.replace(/'/g,"\\'")}')" title="Click to filter the list by this category"><td>${cat}</td><td class="amt-col">${money(amt,false)}</td></tr>`).join('')
+    : '<tr><td colspan="2" class="empty">No data</td></tr>';
+  document.getElementById('exp-summary-total').innerHTML = `<strong>${money(total,false)}</strong>`;
+}
+
+function filterExpensesByCategory(cat){
+  const sel = document.getElementById('exp-filter-category');
+  // The filter <select> only lists categories currently in use; if this
+  // category isn't already one of its options (edge case), add it so the
+  // click-to-filter still works.
+  if (![...sel.options].some(o=>o.value===cat)){
+    sel.insertAdjacentHTML('beforeend', `<option value="${cat}">${cat}</option>`);
+  }
+  sel.value = cat;
+  loadExpenses();
+}
+
+async function loadExpenses(){
+  const {start,end} = getPeriodRange('exp');
+  let q = sb.from('expenses').select('*').gte('date', start).lte('date', end).order('date', {ascending:false});
+  const method = document.getElementById('exp-filter-method').value;
+  const category = document.getElementById('exp-filter-category').value;
+  if (method) q = q.eq('payment_method', method);
+  if (category) q = q.eq('category', category);
+
+  let {data, error} = await q;
+  const body = document.getElementById('expense-body');
+  const summary = document.getElementById('expense-summary');
+  if (error){ body.innerHTML = `<tr><td colspan="9" class="empty">${error.message}</td></tr>`; summary.textContent=''; return; }
+  data = applySearch(data || [], document.getElementById('exp-search').value, ['payee','category','check_number','notes']);
+  if (!data.length){ body.innerHTML = '<tr><td colspan="9" class="empty">No expenses for this filter.</td></tr>'; summary.textContent = '0 rows · Total: $0.00'; document.getElementById('exp-summary-body').innerHTML='<tr><td colspan="2" class="empty">No data</td></tr>'; document.getElementById('exp-summary-total').innerHTML='<strong>$0.00</strong>'; return; }
+  rowCache.expenses = {};
+  data.forEach(r => rowCache.expenses[r.id] = r);
+  body.innerHTML = data.map(r=>`
+    <tr>
+      <td>${r.date}</td>
+      <td>${r.post_date||'—'}</td>
+      <td><span class="badge">${r.payment_method}</span></td>
+      <td>${r.check_number||'—'}</td>
+      <td>${r.payee}</td>
+      <td><input type="text" class="row-input" list="category-list" value="${r.category}" onchange="updateExpenseCategoryInline('${r.id}', this.value, this)"></td>
+      <td class="amt-col">${money(r.amount,false)}</td>
+      <td>${r.bank_stmt_file ? `<span class="badge ok">Matched</span><div style="font-size:10.5px; color:var(--ink-soft); margin-top:2px;">${r.bank_stmt_file}</div>` : `<span class="badge outstanding">Unmatched</span>`}</td>
+      <td>${rowActionButtons('expenses', r.id)}</td>
+    </tr>`).join('');
+  const total = data.reduce((s,r)=>s+(Number(r.amount)||0),0);
+  summary.textContent = `${data.length} expense${data.length===1?'':'s'} · Total: $${fmt(total)}`;
+
+  // right-side "Summary by Category" box, mirroring the original
+  // spreadsheet's Description / SUM of Amount layout
+  const byCat = {};
+  data.forEach(r=>{ byCat[r.category] = (byCat[r.category]||0) + Number(r.amount); });
+  const catRows = Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('exp-summary-body').innerHTML = catRows.length
+    ? catRows.map(([cat,amt])=>`<tr class="cat-summary-row" onclick="filterExpensesByCategory('${cat.replace(/'/g,"\\'")}')" title="Click to filter the list by this category"><td>${cat}</td><td class="amt-col">${money(amt,false)}</td></tr>`).join('')
+    : '<tr><td colspan="2" class="empty">No data</td></tr>';
+  document.getElementById('exp-summary-total').innerHTML = `<strong>${money(total,false)}</strong>`;
+}
+initPeriodControls('exp', () => loadExpenses());
+['exp-filter-method','exp-filter-category'].forEach(id=>{
+  document.getElementById(id).addEventListener('change', loadExpenses);
+});
+document.getElementById('exp-search').addEventListener('input', loadExpenses);
+
+/* ---------------------------------------------------------
+   E-WITHDRAWALS — same shape as Checks Register, filtered to
+   payment_method = 'electronic' in the same expenses table
+--------------------------------------------------------- */
+document.getElementById('ewithdrawal-form').addEventListener('submit', async e=>{
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const payload = Object.fromEntries(fd.entries());
+  payload.amount = Number(payload.amount);
+  payload.payment_method = 'electronic';
+
+  const {error} = await sb.from('expenses').insert(payload);
+  const status = document.getElementById('ewithdrawal-status');
+  if (error){ status.textContent = error.message; status.classList.add('err'); }
+  else { status.textContent = 'Saved.'; status.classList.remove('err'); e.target.reset(); loadEwithdrawals(); loadCategoryFilter('ew-filter-category','electronic'); }
+});
+
+async function loadEwithdrawals(){
+  const {start,end} = getPeriodRange('ew');
+  let q = sb.from('expenses').select('*').eq('payment_method','electronic').gte('date', start).lte('date', end).order('date', {ascending:false});
+  const category = document.getElementById('ew-filter-category').value;
+  if (category) q = q.eq('category', category);
+
+  let {data, error} = await q;
+  const body = document.getElementById('ewithdrawal-body');
+  const summary = document.getElementById('ewithdrawal-summary');
+  if (error){ body.innerHTML = `<tr><td colspan="5" class="empty">${error.message}</td></tr>`; summary.textContent=''; return; }
+  data = applySearch(data || [], document.getElementById('ew-search').value, ['payee','category','notes']);
+  if (!data.length){ body.innerHTML = '<tr><td colspan="5" class="empty">No e-withdrawals for this filter.</td></tr>'; summary.textContent = '0 rows · Total: $0.00'; document.getElementById('ew-summary-body').innerHTML='<tr><td colspan="2" class="empty">No data</td></tr>'; document.getElementById('ew-summary-total').innerHTML='<strong>$0.00</strong>'; return; }
+  rowCache.expenses = {};
+  data.forEach(r => rowCache.expenses[r.id] = r);
+  body.innerHTML = data.map(r=>`
+    <tr>
+      <td>${r.date}</td>
+      <td>${r.payee}</td>
+      <td>${r.category}</td>
+      <td class="amt-col">${money(r.amount,false)}</td>
+      <td>${rowActionButtons('expenses', r.id)}</td>
+    </tr>`).join('');
+  const total = data.reduce((s,r)=>s+(Number(r.amount)||0),0);
+  summary.textContent = `${data.length} withdrawal${data.length===1?'':'s'} · Total: $${fmt(total)}`;
+
+  const byCat = {};
+  data.forEach(r=>{ byCat[r.category] = (byCat[r.category]||0) + Number(r.amount); });
+  const catRows = Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('ew-summary-body').innerHTML = catRows.length
+    ? catRows.map(([cat,amt])=>`<tr><td>${cat}</td><td class="amt-col">${money(amt,false)}</td></tr>`).join('')
+    : '<tr><td colspan="2" class="empty">No data</td></tr>';
+  document.getElementById('ew-summary-total').innerHTML = `<strong>${money(total,false)}</strong>`;
+}
+initPeriodControls('ew', () => loadEwithdrawals());
+document.getElementById('ew-filter-category').addEventListener('change', loadEwithdrawals);
+document.getElementById('ew-search').addEventListener('input', loadEwithdrawals);
+
+/* ---------------------------------------------------------
+   LIABILITIES — filtered view of expenses by liability-type
+   categories; nothing new is written that isn't already a
+   check or e-withdrawal row
+--------------------------------------------------------- */
+const LIABILITY_CATEGORIES = ['Loan Payment','Auto Payment','Bronco Auto Loan Payment','Credit Card Payment','EIDL Loan'];
+const isLiabilityCategory = cat => LIABILITY_CATEGORIES.includes(cat) || /loan payment/i.test(cat||'');
+
+document.getElementById('liab-method').addEventListener('change', e=>{
+  document.getElementById('liab-checknum-wrap').style.display = e.target.value === 'check' ? '' : 'none';
+});
+
+document.getElementById('liability-form').addEventListener('submit', async e=>{
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const payload = Object.fromEntries(fd.entries());
+  payload.amount = Number(payload.amount);
+  if (payload.payment_method !== 'check') payload.check_number = null;
+
+  const {error} = await sb.from('expenses').insert(payload);
+  const status = document.getElementById('liability-status');
+  if (error){ status.textContent = error.message; status.classList.add('err'); }
+  else { status.textContent = 'Saved.'; status.classList.remove('err'); e.target.reset(); loadLiabilities(); }
+});
+
+function populateLiabilityCategoryFilter(){
+  const sel = document.getElementById('liab-filter-category');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All categories</option>' + LIABILITY_CATEGORIES.map(c=>`<option value="${c}">${c}</option>`).join('');
+  sel.value = current;
+}
+
+async function loadLiabilities(){
+  const {start,end} = getPeriodRange('liab');
+  let {data, error} = await sb.from('expenses').select('*').gte('date', start).lte('date', end).order('date', {ascending:false});
+  const body = document.getElementById('liability-body');
+  const summary = document.getElementById('liability-summary');
+  if (error){ body.innerHTML = `<tr><td colspan="7" class="empty">${error.message}</td></tr>`; summary.textContent=''; return; }
+  data = (data || []).filter(r => isLiabilityCategory(r.category));
+  const catFilter = document.getElementById('liab-filter-category').value;
+  if (catFilter) data = data.filter(r => r.category === catFilter);
+  data = applySearch(data, document.getElementById('liab-search').value, ['payee','category','check_number','notes']);
+  if (!data.length){ body.innerHTML = '<tr><td colspan="7" class="empty">No liabilities for this filter.</td></tr>'; summary.textContent = '0 rows · Total: $0.00'; document.getElementById('liab-summary-body').innerHTML='<tr><td colspan="2" class="empty">No data</td></tr>'; document.getElementById('liab-summary-total').innerHTML='<strong>$0.00</strong>'; return; }
+  rowCache.expenses = {};
+  data.forEach(r => rowCache.expenses[r.id] = r);
+  body.innerHTML = data.map(r=>`
+    <tr>
+      <td>${r.date}</td>
+      <td><span class="badge">${r.payment_method}</span></td>
+      <td>${r.check_number||'—'}</td>
+      <td>${r.payee}</td>
+      <td>${r.category}</td>
+      <td class="amt-col">${money(r.amount,false)}</td>
+      <td>${rowActionButtons('expenses', r.id)}</td>
+    </tr>`).join('');
+  const total = data.reduce((s,r)=>s+(Number(r.amount)||0),0);
+  summary.textContent = `${data.length} row${data.length===1?'':'s'} · Total: $${fmt(total)}`;
+
+  const byCat = {};
+  data.forEach(r=>{ byCat[r.category] = (byCat[r.category]||0) + Number(r.amount); });
+  const catRows = Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('liab-summary-body').innerHTML = catRows.length
+    ? catRows.map(([cat,amt])=>`<tr><td>${cat}</td><td class="amt-col">${money(amt,false)}</td></tr>`).join('')
+    : '<tr><td colspan="2" class="empty">No data</td></tr>';
+  document.getElementById('liab-summary-total').innerHTML = `<strong>${money(total,false)}</strong>`;
+}
+initPeriodControls('liab', () => loadLiabilities());
+document.getElementById('liab-filter-category').addEventListener('change', loadLiabilities);
+document.getElementById('liab-search').addEventListener('input', loadLiabilities);
+
+/* ---------------------------------------------------------
+   PETTY CASH — filtered view of expenses, category fixed to
+   'Petty Cash'; summary breaks down by person, not category
+--------------------------------------------------------- */
+document.getElementById('pc-method').addEventListener('change', e=>{
+  document.getElementById('pc-checknum-wrap').style.display = e.target.value === 'check' ? '' : 'none';
+});
+
+document.getElementById('pettycash-form').addEventListener('submit', async e=>{
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const payload = Object.fromEntries(fd.entries());
+  payload.amount = Number(payload.amount);
+  payload.category = 'Petty Cash';
+  if (payload.payment_method !== 'check') payload.check_number = null;
+
+  const {error} = await sb.from('expenses').insert(payload);
+  const status = document.getElementById('pettycash-status');
+  if (error){ status.textContent = error.message; status.classList.add('err'); }
+  else { status.textContent = 'Saved.'; status.classList.remove('err'); e.target.reset(); loadPettyCash(); }
+});
+
+async function loadPettyCash(){
+  const {start,end} = getPeriodRange('pc');
+  let {data, error} = await sb.from('expenses').select('*').eq('category','Petty Cash').gte('date', start).lte('date', end).order('date', {ascending:false});
+  const body = document.getElementById('pettycash-body');
+  const summary = document.getElementById('pettycash-summary');
+  if (error){ body.innerHTML = `<tr><td colspan="6" class="empty">${error.message}</td></tr>`; summary.textContent=''; return; }
+  data = applySearch(data || [], document.getElementById('pc-search').value, ['payee','check_number','notes']);
+  if (!data.length){ body.innerHTML = '<tr><td colspan="6" class="empty">No petty cash entries for this filter.</td></tr>'; summary.textContent = '0 rows · Total: $0.00'; document.getElementById('pc-summary-body').innerHTML='<tr><td colspan="2" class="empty">No data</td></tr>'; document.getElementById('pc-summary-total').innerHTML='<strong>$0.00</strong>'; return; }
+  rowCache.expenses = {};
+  data.forEach(r => rowCache.expenses[r.id] = r);
+  body.innerHTML = data.map(r=>`
+    <tr>
+      <td>${r.date}</td>
+      <td><span class="badge">${r.payment_method}</span></td>
+      <td>${r.check_number||'—'}</td>
+      <td>${r.payee}</td>
+      <td class="amt-col">${money(r.amount,false)}</td>
+      <td>${rowActionButtons('expenses', r.id)}</td>
+    </tr>`).join('');
+  const total = data.reduce((s,r)=>s+(Number(r.amount)||0),0);
+  summary.textContent = `${data.length} row${data.length===1?'':'s'} · Total: $${fmt(total)}`;
+
+  const byPayee = {};
+  data.forEach(r=>{ byPayee[r.payee] = (byPayee[r.payee]||0) + Number(r.amount); });
+  const payeeRows = Object.entries(byPayee).sort((a,b)=>b[1]-a[1]);
+  document.getElementById('pc-summary-body').innerHTML = payeeRows.length
+    ? payeeRows.map(([p,amt])=>`<tr><td>${p}</td><td class="amt-col">${money(amt,false)}</td></tr>`).join('')
+    : '<tr><td colspan="2" class="empty">No data</td></tr>';
+  document.getElementById('pc-summary-total').innerHTML = `<strong>${money(total,false)}</strong>`;
+}
+initPeriodControls('pc', () => loadPettyCash());
+document.getElementById('pc-search').addEventListener('input', loadPettyCash);
+
+/* ---------------------------------------------------------
+   PAYROLL
+--------------------------------------------------------- */
+document.getElementById('payroll-form').addEventListener('submit', async e=>{
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const payload = Object.fromEntries(fd.entries());
+  ['gross','fit','ssee','med_ee','tax','net'].forEach(k=>payload[k]=Number(payload[k]||0));
+
+  const {error} = await sb.from('payroll_entries').insert(payload);
+  const status = document.getElementById('payroll-status');
+  if (error){ status.textContent = error.message; status.classList.add('err'); }
+  else { status.textContent = 'Saved.'; status.classList.remove('err'); e.target.reset(); loadPayroll(); }
+});
+
+async function loadPayroll(){
+  const {start,end} = getPeriodRange('payroll');
+  let {data, error} = await sb.from('payroll_entries').select('*').gte('pay_date', start).lte('pay_date', end).order('pay_date', {ascending:false});
+  const body = document.getElementById('payroll-body');
+  const summary = document.getElementById('payroll-summary');
+  if (error){ body.innerHTML = `<tr><td colspan="7" class="empty">${error.message}</td></tr>`; summary.textContent=''; return; }
+  data = applySearch(data || [], document.getElementById('payroll-search').value, ['employee_name','check_number']);
+  if (!data.length){ body.innerHTML = '<tr><td colspan="7" class="empty">No payroll entries for this period.</td></tr>'; summary.textContent = '0 rows · Total: $0.00'; return; }
+  rowCache.payroll_entries = {};
+  data.forEach(r => rowCache.payroll_entries[r.id] = r);
+  body.innerHTML = data.map(r=>{
+    const taxes = (r.fit||0)+(r.ssee||0)+(r.med_ee||0)+(r.tax||0);
+    return `<tr>
+      <td>${r.pay_date}</td><td>${r.employee_name}</td><td>${r.check_number||'—'}</td>
+      <td class="amt-col">${money(r.gross,false)}</td>
+      <td class="amt-col">${money(taxes,false)}</td>
+      <td class="amt-col">${money(r.net,false)}</td>
+      <td>${rowActionButtons('payroll_entries', r.id)}</td>
+    </tr>`;
+  }).join('');
+  const totalGross = data.reduce((s,r)=>s+(Number(r.gross)||0),0);
+  const totalNet = data.reduce((s,r)=>s+(Number(r.net)||0),0);
+  summary.textContent = `${data.length} entr${data.length===1?'y':'ies'} · Total Gross: $${fmt(totalGross)} · Total Net: $${fmt(totalNet)}`;
+
+  // right-side summary is always YTD, independent of the period filter above
+  const ytd = yearRange(currentYear);
+  const {data: ytdData, error: ytdError} = await sb.from('payroll_entries').select('employee_name, net').gte('pay_date', ytd.start).lte('pay_date', ytd.end);
+  const sumBody = document.getElementById('payroll-summary-body');
+  const sumTotal = document.getElementById('payroll-summary-total');
+  if (ytdError || !ytdData || !ytdData.length){
+    sumBody.innerHTML = '<tr><td colspan="2" class="empty">No data</td></tr>';
+    sumTotal.innerHTML = '<strong>$0.00</strong>';
+  } else {
+    const byPerson = {};
+    ytdData.forEach(r => { byPerson[r.employee_name] = (byPerson[r.employee_name]||0) + Number(r.net); });
+    const personRows = Object.entries(byPerson).sort((a,b)=>b[1]-a[1]);
+    sumBody.innerHTML = personRows.map(([p,amt])=>`<tr><td>${p}</td><td class="amt-col">${money(amt,false)}</td></tr>`).join('');
+    const ytdTotal = ytdData.reduce((s,r)=>s+(Number(r.net)||0),0);
+    sumTotal.innerHTML = `<strong>${money(ytdTotal,false)}</strong>`;
+  }
+}
+initPeriodControls('payroll', () => loadPayroll());
+document.getElementById('payroll-search').addEventListener('input', loadPayroll);
+
+/* ---------------------------------------------------------
+   OWNER LOANS
+--------------------------------------------------------- */
+document.getElementById('loan-form').addEventListener('submit', async e=>{
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const payload = Object.fromEntries(fd.entries());
+  payload.amount = Number(payload.amount);
+
+  const {error} = await sb.from('owner_loans').insert(payload);
+  const status = document.getElementById('loan-status');
+  if (error){ status.textContent = error.message; status.classList.add('err'); }
+  else { status.textContent = 'Saved.'; status.classList.remove('err'); e.target.reset(); loadLoans(); }
+});
+
+async function loadLoans(){
+  const {data, error} = await sb.from('owner_loans').select('*').order('date', {ascending:false});
+  const balBody = document.getElementById('loan-balance-body');
+  const logBody = document.getElementById('loan-body');
+  const summary = document.getElementById('loan-summary');
+  if (error){ balBody.innerHTML = logBody.innerHTML = `<tr><td colspan="6" class="empty">${error.message}</td></tr>`; summary.textContent=''; return; }
+  if (!data || !data.length){
+    balBody.innerHTML = '<tr><td colspan="2" class="empty">No loan activity logged.</td></tr>';
+    logBody.innerHTML = '<tr><td colspan="6" class="empty">No loan activity logged.</td></tr>';
+    summary.textContent = '0 rows · Total: $0.00';
+    return;
+  }
+  const byPerson = {};
+  data.forEach(r=>{
+    byPerson[r.person] = byPerson[r.person] || {in:0, out:0};
+    if (r.direction === 'loan_in') byPerson[r.person].in += Number(r.amount);
+    else byPerson[r.person].out += Number(r.amount);
+  });
+  const balanceRows = Object.entries(byPerson).map(([p,v])=>[p, v.in - v.out]).sort((a,b)=>b[1]-a[1]);
+  balBody.innerHTML = balanceRows.map(([p,bal])=>`<tr><td><button class="link person-link" onclick='openPersonSummary(${JSON.stringify(p)})'>${p}</button></td><td class="amt-col">${money(bal)}</td></tr>`).join('');
+
+  // Activity Log respects the period filter + search; Balances above stays all-time
+  const range = getPeriodRange('loan');
+  let logData = range ? data.filter(r => r.date >= range.start && r.date <= range.end) : data;
+  logData = applySearch(logData, document.getElementById('loan-search').value, ['person','notes']);
+
+  rowCache.owner_loans = {};
+  data.forEach(r => rowCache.owner_loans[r.id] = r);
+
+  if (!logData.length){
+    logBody.innerHTML = '<tr><td colspan="6" class="empty">No loan activity for this period.</td></tr>';
+    summary.textContent = '0 rows · Total: $0.00';
+    return;
+  }
+  logBody.innerHTML = logData.map(r=>`
+    <tr>
+      <td>${r.date}</td><td>${r.person}</td>
+      <td><span class="badge" style="background:${r.direction==='loan_in'?'var(--green)':'var(--red-ink)'};">${r.direction==='loan_in'?'Loan In':'Repayment'}</span></td>
+      <td class="amt-col">${money(r.amount,false)}</td>
+      <td>${r.notes||''}</td>
+      <td>${rowActionButtons('owner_loans', r.id)}</td>
+    </tr>`).join('');
+  const total = logData.reduce((s,r)=>s+(Number(r.amount)||0),0);
+  summary.textContent = `${logData.length} row${logData.length===1?'':'s'} · Total: $${fmt(total)}`;
+}
+initPeriodControls('loan', () => loadLoans());
+document.getElementById('loan-search').addEventListener('input', loadLoans);
+
+let personSummaryCache = null; // {person, rows, totalIn, totalOut, balance}
+
+async function openPersonSummary(person){
+  const {data, error} = await sb.from('owner_loans').select('*').eq('person', person).order('date', {ascending:true});
+  if (error){ alert('Could not load activity for ' + person + ': ' + error.message); return; }
+  const rows = data || [];
+  const totalIn = rows.filter(r=>r.direction==='loan_in').reduce((s,r)=>s+Number(r.amount),0);
+  const totalOut = rows.filter(r=>r.direction==='repayment').reduce((s,r)=>s+Number(r.amount),0);
+  personSummaryCache = {person, rows, totalIn, totalOut, balance: totalIn - totalOut};
+
+  document.getElementById('person-loan-title').textContent = `Loan Activity — ${person}`;
+  document.getElementById('person-loan-body').innerHTML = renderPersonSummaryHtml(personSummaryCache);
+  document.getElementById('person-loan-modal').classList.add('open');
+}
+
+function renderPersonSummaryHtml({person, rows, totalIn, totalOut, balance}){
+  const rowsHtml = rows.length
+    ? rows.map(r=>`<tr>
+        <td>${r.date}</td>
+        <td><span class="badge" style="background:${r.direction==='loan_in'?'var(--green)':'var(--red-ink)'};">${r.direction==='loan_in'?'Loan In':'Repayment'}</span></td>
+        <td class="amt-col">${money(r.amount,false)}</td>
+        <td>${r.reference||''}</td>
+        <td>${r.notes||''}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" class="empty">No activity.</td></tr>';
+  return `
+    <div class="stats" style="margin-bottom:14px;">
+      <div class="stat"><div class="label">Total Loaned In</div><div class="value">$${fmt(totalIn)}</div></div>
+      <div class="stat"><div class="label">Total Repaid</div><div class="value">$${fmt(totalOut)}</div></div>
+      <div class="stat"><div class="label">Current Balance</div><div class="value">$${fmt(balance)}</div></div>
+    </div>
+    <table>
+      <thead><tr><th>Date</th><th>Direction</th><th class="amt-col">Amount</th><th>Reference</th><th>Notes</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>`;
+}
+
+function printPersonSummary(){
+  if (!personSummaryCache) return;
+  document.getElementById('person-loan-print-title').textContent = `Loan Activity — ${personSummaryCache.person}`;
+  document.getElementById('person-loan-print-body').innerHTML = renderPersonSummaryHtml(personSummaryCache);
+  const el = document.getElementById('person-loan-print');
+  el.classList.add('printing');
+  const cleanup = () => el.classList.remove('printing');
+  window.addEventListener('afterprint', cleanup, {once:true});
+  window.print();
+  setTimeout(cleanup, 2000);
+}
+
+function emailPersonSummary(){
+  if (!personSummaryCache) return;
+  const {person, rows, totalIn, totalOut, balance} = personSummaryCache;
+  const lines = [`Loan Activity — ${person}`, '', `Total Loaned In: $${fmt(totalIn)}`, `Total Repaid: $${fmt(totalOut)}`, `Current Balance: $${fmt(balance)}`, ''];
+  rows.forEach(r => lines.push(`${r.date}  ${r.direction==='loan_in'?'Loan In':'Repayment'}  $${fmt(r.amount)}${r.reference?'  ref:'+r.reference:''}${r.notes?'  — '+r.notes:''}`));
+  const subject = encodeURIComponent(`Loan Activity — ${person}`);
+  const body = encodeURIComponent(lines.join('\n'));
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+}
+
+/* ---------------------------------------------------------
+   BANK STATEMENT RECONCILIATION
+--------------------------------------------------------- */
+if (window['pdfjsLib']) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+let recParsed = null; // {periodStart, periodEnd, checks:[], debits:[]}
+let recStmtFileName = '';
+
+function setRecStatus(msg, isErr){
+  const el = document.getElementById('rec-status');
+  el.textContent = msg;
+  el.className = 'status-msg' + (isErr ? ' err' : '');
+}
+
+async function extractPdfText(file){
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({data: buf}).promise;
+  let text = '';
+  for (let i = 1; i <= pdf.numPages; i++){
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map(it => it.str).join(' ') + '\n';
+  }
+  return text;
+}
+
+// Parse a Bank of America business-statement text dump into the pieces we
+// need: statement period, the Checks list, and the Withdrawals/other-debits
+// list (electronic items). We deliberately skip Deposits — the Sales &
+// Deposits tab already reconciles income; this tab is about outflows
+// matching the Checks Register.
+function parseStatementText(text){
+  const norm = text.replace(/\s+/g, ' ');
+
+  // Statement period, e.g. "for June 1, 2026 to June 30, 2026"
+  let periodStart = '', periodEnd = '';
+  const periodMatch = norm.match(/for\s+([A-Za-z]+ \d{1,2}, \d{4})\s+to\s+([A-Za-z]+ \d{1,2}, \d{4})/);
+  if (periodMatch){
+    periodStart = new Date(periodMatch[1]).toISOString().slice(0,10);
+    periodEnd = new Date(periodMatch[2]).toISOString().slice(0,10);
+  }
+
+  // ---- Checks: pairs of "MM/DD/YY  CHECKNUM  -amount" repeated ----
+  const checksSectionMatch = norm.match(/\bChecks\b([\s\S]*?)Total checks/);
+  const checks = [];
+  if (checksSectionMatch){
+    const re = /(\d{2}\/\d{2}\/\d{2})\s+(\d{3,6}\*?)\s+(-?[\d,]+\.\d{2})/g;
+    let m;
+    while ((m = re.exec(checksSectionMatch[1])) !== null){
+      checks.push({
+        date: toIsoDate(m[1]),
+        checkNumber: m[2].replace('*',''),
+        amount: parseAmt(m[3]),
+      });
+    }
+  }
+
+  // ---- Withdrawals and other debits (electronic) ----
+  const wSectionMatch = norm.match(/Withdrawals and other debits([\s\S]*?)Total withdrawals and other debits/);
+  const debits = [];
+  if (wSectionMatch){
+    let body = wSectionMatch[1].replace(/Withdrawals and other debits - continued/g, '').replace(/continued on the next page/g, '').replace(/Date Description Amount/g, '');
+    const re = /(\d{2}\/\d{2}\/\d{2})\s+([\s\S]+?)(-[\d,]+\.\d{2})(?=\s+\d{2}\/\d{2}\/\d{2}\s|\s*$)/g;
+    let m;
+    while ((m = re.exec(body)) !== null){
+      debits.push({
+        date: toIsoDate(m[1]),
+        description: m[2].trim().replace(/\s{2,}/g,' '),
+        amount: parseAmt(m[3]),
+      });
+    }
+  }
+
+  return {periodStart, periodEnd, checks, debits};
+}
+
+function toIsoDate(mmddyy){
+  const [mm,dd,yy] = mmddyy.split('/');
+  return `20${yy}-${mm}-${dd}`;
+}
+function parseAmt(s){
+  return Number(s.replace(/,/g,''));
+}
+
+document.getElementById('rec-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  recStmtFileName = file.name;
+  setRecStatus('Reading PDF…');
+  document.getElementById('rec-run-btn').disabled = true;
+  try {
+    const text = await extractPdfText(file);
+    recParsed = parseStatementText(text);
+    if (recParsed.periodStart) document.getElementById('rec-start').value = recParsed.periodStart;
+    if (recParsed.periodEnd) document.getElementById('rec-end').value = recParsed.periodEnd;
+    const n = recParsed.checks.length + recParsed.debits.length;
+    if (!n){
+      setRecStatus('Could not find any checks or withdrawals in this PDF — the statement layout may differ from what this parser expects.', true);
+    } else {
+      setRecStatus(`Parsed ${recParsed.checks.length} checks and ${recParsed.debits.length} electronic withdrawals. Confirm the date range and run reconciliation.`);
+      document.getElementById('rec-run-btn').disabled = false;
+    }
+  } catch(err){
+    console.error(err);
+    setRecStatus('Could not read that PDF: ' + err.message, true);
+  }
+});
+
+document.getElementById('rec-run-btn').addEventListener('click', runReconciliation);
+
+function amtsMatch(a,b){ return Math.abs(Math.abs(a) - Math.abs(b)) < 0.01; }
+
+async function runReconciliation(){
+  if (!recParsed) return;
+  const start = document.getElementById('rec-start').value;
+  const end = document.getElementById('rec-end').value;
+  setRecStatus('Matching against the Check Register…');
+
+  // Match against the FULL year-to-date register, not just this statement's
+  // month — a check or withdrawal can be sitting in the register under an
+  // earlier (or mis-entered) date and still needs to be found here.
+  const yearStart = `${start.slice(0,4)}-01-01`;
+  const {data: register, error} = await sb.from('expenses').select('*').gte('date', yearStart).lte('date', end).order('date');
+  if (error){ setRecStatus('Could not load the Check Register: ' + error.message, true); return; }
+
+  // Working pool of register rows not yet matched
+  const pool = (register || []).map(r => ({...r, _matched:false}));
+  const rows = []; // render rows: {date, ref, description, amount, matchDesc, status, statusClass, registerId}
+
+  const daysApart = (d1,d2) => Math.abs((new Date(d1) - new Date(d2)) / 86400000);
+
+  // --- Checks: match by check_number first, fall back to amount+date ---
+  recParsed.checks.forEach(c => {
+    let match = pool.find(r => !r._matched && r.payment_method === 'check' && String(r.check_number||'').trim() === c.checkNumber);
+    if (!match){
+      match = pool.find(r => !r._matched && r.payment_method === 'check' && amtsMatch(r.amount, c.amount) && daysApart(r.date, c.date) <= 15);
+    }
+    if (match){
+      match._matched = true;
+      const amtOk = amtsMatch(match.amount, c.amount);
+      rows.push({
+        date: c.date, ref: c.checkNumber, description: match.payee + (match.category?` · ${match.category}`:''),
+        amount: c.amount, matchDesc: `${match.payee} — $${fmt(match.amount)}`,
+        status: amtOk ? 'Matched' : 'Amount Mismatch', statusClass: amtOk ? 'ok' : 'warn', registerId: match.id,
+        bankDate: c.date, currentPostDate: match.post_date || null, ledgerDate: match.date,
+      });
+    } else {
+      rows.push({
+        date: c.date, ref: c.checkNumber, description: '(no register entry)',
+        amount: c.amount, matchDesc: '—',
+        status: 'Missing in Register', statusClass: 'miss', registerId: null,
+        addPrefill: {date:c.date, payment_method:'check', check_number:c.checkNumber, amount:c.amount},
+      });
+    }
+  });
+
+  // --- Electronic withdrawals: match by amount + date proximity (payee unknown from bank text) ---
+  recParsed.debits.forEach(d => {
+    let candidates = pool.filter(r => !r._matched && amtsMatch(r.amount, d.amount) && daysApart(r.date, d.date) <= 5);
+    candidates.sort((a,b) => daysApart(a.date,d.date) - daysApart(b.date,d.date));
+    const match = candidates[0];
+    if (match){
+      match._matched = true;
+      rows.push({
+        date: d.date, ref: '—', description: d.description,
+        amount: d.amount, matchDesc: `${match.payee} — $${fmt(match.amount)}`,
+        status: 'Matched', statusClass: 'ok', registerId: match.id,
+        bankDate: d.date, currentPostDate: match.post_date || null, ledgerDate: match.date,
+      });
+    } else {
+      rows.push({
+        date: d.date, ref: '—', description: d.description,
+        amount: d.amount, matchDesc: '—',
+        status: 'Missing in Register', statusClass: 'miss', registerId: null,
+        addPrefill: {date:d.date, payment_method:'electronic', payee:d.description.slice(0,80), amount:d.amount},
+      });
+    }
+  });
+
+  rows.sort((a,b) => a.date.localeCompare(b.date));
+
+  // Register rows never matched to anything on the statement (outstanding / uncleared / possible data-entry error)
+  const unmatchedRegister = pool.filter(r => !r._matched);
+
+  // Stamp every register row matched in THIS run with the statement's
+  // filename, so the Check Register shows it's been confirmed against a
+  // bank statement, and a later run can tell "matched before, just not in
+  // this statement" apart from "never matched at all".
+  const matchedIds = rows.filter(r => r.registerId).map(r => r.registerId);
+  if (matchedIds.length){
+    const {error: stampErr} = await sb.from('expenses').update({bank_stmt_file: recStmtFileName}).in('id', matchedIds);
+    if (stampErr){
+      console.warn('Could not stamp bank_stmt_file — run this once in Supabase: alter table expenses add column bank_stmt_file text;', stampErr.message);
+    } else {
+      matchedIds.forEach(id => { if (rowCache.expenses[id]) rowCache.expenses[id].bank_stmt_file = recStmtFileName; });
+    }
+  }
+
+  // Pull back any manually-entered Ledger Date / notes saved on a previous run
+  // for items still missing from the register (see reconcile_notes table).
+  try{
+    const {data: notes} = await sb.from('reconcile_notes').select('*').gte('stmt_date', start).lte('stmt_date', end);
+    (notes || []).forEach(n => {
+      const row = rows.find(r => r.status === 'Missing in Register' && r.date === n.stmt_date && r.ref === n.ref && amtsMatch(r.amount, n.amount));
+      if (row){ row.savedLedgerDate = n.ledger_date || ''; row.savedNotes = n.notes || ''; row.noteId = n.id; }
+    });
+  } catch(e){ /* reconcile_notes table not set up yet — fine, notes just won't persist */ }
+
+  renderReconciliation(rows, unmatchedRegister);
+  setRecStatus(`Reconciliation complete: ${rows.filter(r=>r.status==='Matched').length} matched, ${rows.filter(r=>r.status==='Missing in Register').length} missing in register, ${rows.filter(r=>r.status==='Amount Mismatch').length} amount mismatches. Use "Update Post Date" on a matched row to write it to the register.`);
+}
+
+let recAddPrefillCache = {};
+let recRowCache = {};
+
+async function updatePostDateFromReconcile(idx){
+  const r = recRowCache[idx];
+  if (!r || !r.registerId) return; // only ever applies to a matched row
+  const btn = document.getElementById(`rec-postdate-btn-${idx}`);
+  if (btn){ btn.disabled = true; btn.textContent = 'Saving…'; }
+  const {error} = await sb.from('expenses').update({post_date: r.bankDate}).eq('id', r.registerId);
+  if (error){
+    alert('Could not update Post Date: ' + error.message + '\n\nIf this mentions a missing column, run this once in Supabase:\nalter table expenses add column post_date date;');
+    if (btn){ btn.disabled = false; btn.textContent = '🗓 Set Post Date'; }
+    return;
+  }
+  r.currentPostDate = r.bankDate;
+  if (rowCache.expenses[r.registerId]) rowCache.expenses[r.registerId].post_date = r.bankDate;
+  renderRecBody(); // redraw so the button becomes the "Post Date Set" badge and the Ledger Date cell updates
+  loadExpenses();
+}
+
+// For "Missing in Register" rows: save whatever the person found by manually
+// searching the Ledger elsewhere (a Ledger Date and/or a note), and if a
+// Ledger Date was given, try to actually locate that entry — searching the
+// WHOLE register, no date restriction — so a mis-dated entry (the reason it
+// didn't auto-match) can still be found and opened for a fix.
+async function saveLedgerNote(idx){
+  const r = recRowCache[idx];
+  if (!r) return;
+  const dateInput = document.getElementById(`ledger-date-${idx}`);
+  const notesInput = document.getElementById(`ledger-notes-${idx}`);
+  const btn = document.getElementById(`ledger-save-btn-${idx}`);
+  const ledgerDateVal = dateInput.value;
+  const notesVal = notesInput.value.trim();
+  if (btn){ btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  const payload = {stmt_date:r.date, ref:r.ref, amount:r.amount, ledger_date: ledgerDateVal || null, notes: notesVal || null};
+  const {error} = r.noteId
+    ? await sb.from('reconcile_notes').update(payload).eq('id', r.noteId)
+    : await (async () => {
+        const res = await sb.from('reconcile_notes').insert(payload).select().single();
+        if (!res.error && res.data) r.noteId = res.data.id;
+        return res;
+      })();
+
+  if (error){
+    alert('Could not save — you likely need to create the notes table once in Supabase:\n\ncreate table reconcile_notes (\n  id uuid primary key default gen_random_uuid(),\n  stmt_date date not null,\n  ref text,\n  amount numeric not null,\n  ledger_date date,\n  notes text,\n  created_at timestamptz default now()\n);');
+    if (btn){ btn.disabled = false; btn.textContent = '💾 Save'; }
+    return;
+  }
+
+  if (btn){ btn.textContent = '✅ Saved'; btn.disabled = false; }
+
+  if (ledgerDateVal){
+    const isCheck = r.ref && r.ref !== '—';
+    let query = sb.from('expenses').select('*').eq('payment_method', isCheck ? 'check' : 'electronic');
+    if (isCheck) query = query.eq('check_number', r.ref);
+    const {data: candidates} = await query;
+    let found = (candidates || []).filter(c => amtsMatch(c.amount, r.amount));
+    if (!isCheck){
+      found = found.filter(c => Math.abs((new Date(c.date) - new Date(ledgerDateVal)) / 86400000) <= 45);
+    }
+    if (found.length === 1){
+      if (confirm(`Found it: ${found[0].payee} — $${fmt(found[0].amount)} dated ${found[0].date} in the register.\n\nOpen it now to check/fix the date?`)){
+        openEditFromReconcile(found[0].id);
+      }
+    } else if (found.length > 1 && btn){
+      btn.textContent = `⚠ ${found.length} possible matches`;
+    }
+  }
+}
+
+let recAllRows = [];
+let recAllUnmatched = [];
+let recFilter = null; // null = everything; 'bank-all'; 'Matched'; 'Missing in Register'; 'Amount Mismatch'; 'outstanding'
+
+function renderReconciliation(rows, unmatchedRegister){
+  document.getElementById('rec-results-head').style.display = '';
+  document.getElementById('rec-summary-panel').style.display = '';
+  document.getElementById('rec-results-panel').style.display = '';
+  recAllRows = rows;
+  recAllUnmatched = unmatchedRegister;
+  recFilter = null;
+  renderRecCards();
+  renderRecBody();
+}
+
+function setRecFilter(filter){
+  recFilter = (recFilter === filter) ? null : filter; // clicking the active card again clears the filter
+  renderRecCards();
+  renderRecBody();
+}
+
+function renderRecCards(){
+  const rows = recAllRows, unmatchedRegister = recAllUnmatched;
+  const matched = rows.filter(r=>r.status==='Matched').length;
+  const missing = rows.filter(r=>r.status==='Missing in Register').length;
+  const mismatch = rows.filter(r=>r.status==='Amount Mismatch').length;
+  const trueOutstanding = unmatchedRegister.filter(r => !(r.bank_stmt_file && r.bank_stmt_file !== recStmtFileName)).length;
+  const matchedElsewhere = unmatchedRegister.length - trueOutstanding;
+  const cards = [
+    {key:'bank-all', label:'Bank Items', value: rows.length},
+    {key:'Matched', label:'Matched', value: matched},
+    {key:'Missing in Register', label:'Missing in Register', value: missing},
+    {key:'Amount Mismatch', label:'Amount Mismatches', value: mismatch},
+    {key:'outstanding', label:'In Register, Not on Statement', value: trueOutstanding},
+    {key:'matched-elsewhere', label:'Matched Elsewhere', value: matchedElsewhere},
+  ];
+  document.getElementById('rec-summary-cards').innerHTML = cards.map(c => `
+    <div class="card clickable${recFilter===c.key?' active':''}" onclick="setRecFilter('${c.key}')">
+      <div class="label">${c.label}</div><div class="value">${c.value}</div>
+    </div>`).join('');
+}
+
+function renderRecBody(){
+  const rows = recAllRows, unmatchedRegister = recAllUnmatched;
+  const body = document.getElementById('rec-body');
+  recAddPrefillCache = {};
+  recRowCache = {};
+  const bankRowObjs = rows.map((r,idx) => {
+    recRowCache[idx] = r;
+    let action = '';
+    let ledgerDateCell = `<td>—</td>`;
+    if (r.status === 'Missing in Register'){
+      recAddPrefillCache[idx] = r.addPrefill;
+      action = `<div class="rec-actions"><button class="link" onclick="addFromReconcile(${idx})">➕ Add to Register</button></div>`;
+      const savedDate = r.savedLedgerDate || '';
+      const savedNotes = (r.savedNotes || '').replace(/"/g,'&quot;');
+      ledgerDateCell = `<td>
+          <input type="date" id="ledger-date-${idx}" value="${savedDate}" style="width:132px; padding:3px 5px; font-size:12px;">
+          <input type="text" id="ledger-notes-${idx}" placeholder="notes" value="${savedNotes}" style="width:120px; margin-top:3px; display:block; padding:3px 5px; font-size:12px;">
+          <button class="link" id="ledger-save-btn-${idx}" onclick="saveLedgerNote(${idx})" style="margin-top:3px;">💾 Save</button>
+        </td>`;
+    } else if (r.registerId){
+      const alreadySet = !!r.currentPostDate;
+      const editBtn = `<button class="link" onclick="openEditFromReconcile('${r.registerId}')">✏️ Edit Register</button>`;
+      const postDateBtn = r.status === 'Matched'
+        ? (alreadySet
+            ? `<span class="badge ok" title="Confirmed against the bank statement">Post Date Set</span>`
+            : `<button class="link" id="rec-postdate-btn-${idx}" onclick="updatePostDateFromReconcile(${idx})">🗓 Set Post Date</button>`)
+        : '';
+      action = `<div class="rec-actions">${editBtn}${postDateBtn}</div>`;
+      ledgerDateCell = `<td id="ledger-date-cell-${idx}">${r.currentPostDate || r.ledgerDate || '—'}</td>`;
+    }
+    return {status:r.status, html: `<tr>
+      <td>${r.date}</td>${ledgerDateCell}<td>${r.ref}</td><td>${r.description}</td>
+      <td class="amt-col">${money(r.amount,false)}</td>
+      <td>${r.matchDesc}</td>
+      <td><span class="badge ${r.statusClass}">${r.status}</span></td>
+      <td class="no-print">${action}</td>
+    </tr>`};
+  });
+  const outstandingHtml = unmatchedRegister.map(r => {
+    const priorMatch = r.bank_stmt_file && r.bank_stmt_file !== recStmtFileName;
+    const badge = priorMatch
+      ? `<span class="badge info" title="Last matched to ${r.bank_stmt_file}">Matched Elsewhere</span>`
+      : `<span class="badge outstanding">In Register, Not on Statement</span>`;
+    return `<tr>
+      <td>${r.date}</td><td>${r.date}</td><td>${r.check_number||'—'}</td><td>${r.payee} · ${r.category}</td>
+      <td class="amt-col">${money(r.amount,false)}</td>
+      <td>${priorMatch ? r.bank_stmt_file : '—'}</td>
+      <td>${badge}</td>
+      <td class="no-print"><div class="rec-actions"><button class="link" onclick="openEditFromReconcile('${r.id}')">✏️ Edit Register</button></div></td>
+    </tr>`;
+  });
+
+  let visibleBank, visibleOutstanding;
+  if (recFilter === null){ visibleBank = bankRowObjs.map(o=>o.html); visibleOutstanding = outstandingHtml; }
+  else if (recFilter === 'bank-all'){ visibleBank = bankRowObjs.map(o=>o.html); visibleOutstanding = []; }
+  else if (recFilter === 'outstanding'){
+    visibleBank = [];
+    visibleOutstanding = unmatchedRegister.filter(r => !(r.bank_stmt_file && r.bank_stmt_file !== recStmtFileName)).map(r => outstandingHtml[unmatchedRegister.indexOf(r)]);
+  } else if (recFilter === 'matched-elsewhere'){
+    visibleBank = [];
+    visibleOutstanding = unmatchedRegister.filter(r => r.bank_stmt_file && r.bank_stmt_file !== recStmtFileName).map(r => outstandingHtml[unmatchedRegister.indexOf(r)]);
+  }
+  else { visibleBank = bankRowObjs.filter(o=>o.status===recFilter).map(o=>o.html); visibleOutstanding = []; }
+
+  body.innerHTML = visibleBank.concat(visibleOutstanding).join('') || '<tr><td colspan="8" class="empty">No items match this filter.</td></tr>';
+}
+
+// register rows for the shared view/edit modal need to be in rowCache
+function openEditFromReconcile(id){
+  if (!rowCache.expenses[id]){
+    // ensure row is available to the shared edit modal
+    sb.from('expenses').select('*').eq('id', id).single().then(({data}) => {
+      if (data){ rowCache.expenses[data.id] = data; openEdit('expenses', data.id); }
+    });
+    return;
+  }
+  openEdit('expenses', id);
+}
+
+let recAddCurrentIdx = null;
+
+function addFromReconcile(idx){
+  const prefill = recAddPrefillCache[idx];
+  if (!prefill) return;
+  recAddCurrentIdx = idx;
+
+  document.getElementById('rec-add-bank-line').textContent =
+    prefill.payment_method === 'check'
+      ? `From statement: Check #${prefill.check_number} on ${prefill.date} for $${fmt(prefill.amount)}. The bank only shows the check number and amount — confirm who this was paid to.`
+      : `From statement: "${prefill.payee || ''}" on ${prefill.date} for $${fmt(prefill.amount)}. Confirm or correct the payee name below before saving.`;
+
+  document.getElementById('rec-add-date').value = prefill.date;
+  document.getElementById('rec-add-method').value = prefill.payment_method === 'check' ? 'Check' : 'Electronic';
+  document.getElementById('rec-add-checknum-wrap').style.display = prefill.payment_method === 'check' ? '' : 'none';
+  document.getElementById('rec-add-checknum').value = prefill.check_number || '';
+  document.getElementById('rec-add-amount').value = '$' + fmt(prefill.amount);
+  // Electronic withdrawals carry a guessable payee from the bank description; checks carry none.
+  // Either way this is a starting point only — the field stays required and editable so whoever
+  // is entering it has to actively confirm (or correct) it before it can be saved.
+  document.getElementById('rec-add-payee').value = prefill.payment_method === 'electronic' ? (prefill.payee || '') : '';
+  document.getElementById('rec-add-category').value = '';
+
+  document.getElementById('rec-add-modal').classList.add('open');
+  setTimeout(() => document.getElementById('rec-add-payee').focus(), 50);
+}
+
+document.getElementById('rec-add-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const idx = recAddCurrentIdx;
+  const prefill = recAddPrefillCache[idx];
+  if (!prefill) return;
+
+  const payee = document.getElementById('rec-add-payee').value.trim();
+  const category = document.getElementById('rec-add-category').value.trim();
+  if (!payee || !category) return; // required attrs already guard this, belt-and-suspenders
+
+  const payload = {
+    date: prefill.date,
+    post_date: prefill.date,
+    payment_method: prefill.payment_method,
+    check_number: prefill.check_number || null,
+    payee,
+    category,
+    amount: prefill.amount,
+    notes: 'Added from Bank Stmt Reconciliation',
+  };
+  const {error} = await sb.from('expenses').insert(payload);
+  if (error){ alert('Could not add to register: ' + error.message); return; }
+  closeModal('rec-add-modal');
+  loadCategoryFilter('exp-filter-category');
+  runReconciliation();
+});
+
+/* ---------------------------------------------------------
+   INIT
+--------------------------------------------------------- */
+function loadView(view){
+  if (view === 'dashboard') loadDashboard();
+  if (view === 'sales') loadSales();
+  if (view === 'expenses'){ loadCategoryFilter('exp-filter-category'); loadExpenses(); }
+  if (view === 'ewithdrawals'){ loadCategoryFilter('ew-filter-category','electronic'); loadEwithdrawals(); }
+  if (view === 'liabilities'){ populateLiabilityCategoryFilter(); loadLiabilities(); }
+  if (view === 'pettycash') loadPettyCash();
+  if (view === 'payroll') loadPayroll();
+  if (view === 'loans') loadLoans();
+}
+loadView('dashboard');
+</script>
+</body>
+</html>

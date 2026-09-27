@@ -1,0 +1,675 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Excell Cores — Ledger Bulk Importer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --paper: #ECE6D6; --paper-2:#E4DCC7; --rule:#C6BB9E; --ink:#23301F; --ink-soft:#5B6152;
+    --green:#2C4A3B; --green-dark:#172A21; --green-line:#3E5F4E; --red-ink:#8C3626;
+    --gold:#92702B; --card:#F5F1E6; --radius:3px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:var(--paper); color:var(--ink); font-family:'Inter',system-ui,sans-serif; font-size:14px; line-height:1.45;}
+  h1,h2,h3{font-family:'Source Serif 4',Georgia,serif; font-weight:600; margin:0 0 4px; color:var(--ink);}
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+
+  header.topbar{background:var(--green-dark); color:#EFEAD9; padding:14px 22px; display:flex; align-items:center; gap:12px; border-bottom:3px solid var(--gold);}
+  header.topbar .mark{font-family:'Source Serif 4',serif; font-weight:700; font-size:18px; background:var(--gold); color:var(--green-dark); width:28px;height:28px;border-radius:50%; display:inline-flex;align-items:center;justify-content:center;}
+  header.topbar h1{color:#F5F1E6; font-size:17px; margin:0;}
+  header.topbar .sub{color:#C9C2A6; font-size:12px; text-transform:uppercase; letter-spacing:.4px;}
+
+  nav.tabs{background:var(--green); display:flex; gap:2px; padding:0 22px; overflow-x:auto; align-items:center;}
+  nav.tabs button{background:transparent; border:none; color:#D8D2B8; font-family:'Inter',sans-serif; font-size:13px; font-weight:500; padding:11px 16px; cursor:pointer; white-space:nowrap; border-bottom:3px solid transparent;}
+  nav.tabs button:hover{color:#fff;}
+  nav.tabs button.active{color:#fff; border-bottom-color:var(--gold); background:var(--green-dark);}
+  nav.tabs button .count{margin-left:6px; font-size:11px; opacity:.8;}
+  header.topbar .back{margin-left:auto; color:#C9C2A6; font-size:12.5px; text-decoration:none; padding:6px 12px; border:1px solid #3E5F4E; border-radius:var(--radius);}
+  header.topbar .back:hover{color:#fff; border-color:var(--gold);}
+
+  main{max-width:1320px; margin:0 auto; padding:24px 22px 70px;}
+
+  .panel{background:var(--card); border:1px solid var(--rule); border-radius:var(--radius); margin-bottom:20px; overflow:hidden;}
+  .panel-head{display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--rule); background:var(--paper-2); flex-wrap:wrap; gap:8px;}
+  .panel-head h2{font-size:15px;}
+  .panel-body{padding:16px;}
+
+  input,select{padding:7px 9px; border:1px solid var(--rule); border-radius:var(--radius); background:#fff; color:var(--ink); font-family:'Inter',sans-serif; font-size:13px;}
+  input[type=file]{padding:6px;}
+  button.primary{background:var(--green); color:#fff; border:none; border-radius:var(--radius); padding:9px 18px; font-size:13px; font-weight:600; cursor:pointer;}
+  button.primary:hover{background:var(--green-dark);}
+  button.primary:disabled{background:var(--ink-soft); cursor:not-allowed;}
+  button.ghost{background:transparent; border:1px solid var(--rule); color:var(--ink); border-radius:var(--radius); padding:8px 14px; font-size:13px; cursor:pointer;}
+  button.ghost:hover{border-color:var(--green); color:var(--green);}
+
+  table{width:100%; border-collapse:collapse; font-size:12.5px;}
+  thead th{text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--ink-soft); border-bottom:2px solid var(--green); padding:6px 8px; position:sticky; top:0; background:var(--card);}
+  tbody td{padding:5px 8px; border-bottom:1px solid var(--rule); vertical-align:middle;}
+  tbody tr:hover{background:var(--paper-2);}
+  td.amt-col, th.amt-col{text-align:right;}
+  .row-input{width:100%; padding:4px 6px; font-size:12.5px; border:1px solid transparent; background:transparent;}
+  .row-input:hover, .row-input:focus{border-color:var(--rule); background:#fff;}
+  tr.flagged{background:#F7EBC6; box-shadow: inset 4px 0 0 var(--gold);}
+  tr.flagged:hover{background:#F2E0A8;}
+  tr.void-row{opacity:.6;}
+  tr.dup-row{background:#EBD9D3;}
+  tr.dup-row:hover{background:#E4C9C0;}
+  .badge{display:inline-block; font-size:10.5px; padding:2px 7px; border-radius:10px; background:var(--green); color:#fff; font-weight:500; white-space:nowrap;}
+  .badge.warn{background:var(--gold); color:var(--green-dark);}
+  .badge.miss{background:var(--red-ink);}
+  .badge.dup{background:var(--ink-soft);}
+
+  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:18px;}
+  .stat{background:var(--card); border:1px solid var(--rule); border-radius:var(--radius); padding:12px 14px; border-top:3px solid var(--green);}
+  .stat.warn{border-top-color:var(--gold);}
+  .stat.dup{border-top-color:var(--red-ink);}
+  .stat .label{font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; color:var(--ink-soft);}
+  .stat .value{font-family:'IBM Plex Mono',monospace; font-size:20px; font-weight:600; margin-top:3px;}
+
+  .toolbar{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px;}
+  .status-msg{font-size:12px; color:var(--ink-soft); margin-top:8px; white-space:pre-line;}
+  .status-msg.err{color:var(--red-ink);}
+  .status-msg.ok{color:var(--green);}
+  .empty{color:var(--ink-soft); font-style:italic; padding:24px; text-align:center;}
+  .table-wrap{max-height:540px; overflow:auto; border:1px solid var(--rule); border-radius:var(--radius);}
+  .hint{font-size:12px; color:var(--ink-soft); margin-top:6px;}
+  .checkbox-cell{text-align:center;}
+  progress{width:100%; height:8px; accent-color:var(--green);}
+  .scope-note{background:var(--paper-2); border:1px solid var(--rule); border-radius:var(--radius); padding:10px 14px; font-size:12.5px; color:var(--ink-soft); margin-bottom:18px;}
+  .scope-note strong{color:var(--ink);}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <span class="mark">$</span>
+  <div>
+    <h1>Ledger — Bulk Importer</h1>
+    <div class="sub">Excell Cores · imports directly into Supabase, same connection as the Ledger</div>
+  </div>
+  <a class="back" href="/ledger.html">← Back to Ledger</a>
+</header>
+
+<nav class="tabs" id="tabs"></nav>
+
+<main>
+  <div class="scope-note">
+    Covers <strong>Checks</strong>, <strong>E-Withdrawals</strong>, <strong>Petty Cash</strong> (electronic entries only — petty cash paid by check is already captured in the Checks register), <strong>Payroll</strong>, and <strong>Loan Activity</strong>.
+    <strong>Sales &amp; Deposits</strong> are excluded — they need to match against existing contract records, which isn't a safe bulk-insert. <strong>Liabilities</strong> isn't a separate table — it's just a filtered view of Checks + E-Withdrawals by category, so it's already covered by those two.
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>1. Upload monthly workbooks</h2></div>
+    <div class="panel-body">
+      <div class="toolbar">
+        <input type="file" id="file-input" multiple accept=".xlsx,.xls">
+        <button class="primary" id="parse-btn">Parse Files</button>
+        <button class="ghost" id="clear-btn">Clear</button>
+      </div>
+      <div class="hint">Select all monthly statement files at once (Jan–May). Every applicable sheet in each file is parsed in one pass — switch tabs above to review and import each register separately. Nothing is written until you click Import on a given tab.</div>
+      <div class="status-msg" id="parse-status"></div>
+    </div>
+  </div>
+
+  <div id="review-section" style="display:none;">
+    <div class="stats" id="stats"></div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2 id="review-title">Review &amp; fix flagged rows</h2>
+        <div class="toolbar" style="margin:0;">
+          <button class="ghost" id="check-dupes-btn">Check for Duplicates in Supabase</button>
+          <button class="ghost" id="show-flagged-only">Show Flagged/Duplicates Only</button>
+          <button class="ghost" id="show-all-rows">Show All</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="hint" id="review-hint"></div>
+        <div class="table-wrap" style="margin-top:10px;">
+          <table>
+            <thead><tr id="review-head"></tr></thead>
+            <tbody id="review-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>2. Import</h2></div>
+      <div class="panel-body">
+        <div class="toolbar">
+          <button class="primary" id="import-btn">Import to Supabase</button>
+          <progress id="import-progress" max="100" value="0" style="display:none; max-width:300px;"></progress>
+        </div>
+        <div class="status-msg" id="import-status"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+/* ---------------------------------------------------------
+   CONFIG — same Supabase project the Ledger app uses.
+--------------------------------------------------------- */
+const SUPABASE_URL = 'https://qfxyzzhsqibirbgwerru.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFmeHl6emhzcWliaXJiZ3dlcnJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MDE5MzksImV4cCI6MjA5ODk3NzkzOX0.MXmwiOQMiYvxF2dCWhi2RWF6xxqDX9y0GvRS6Efb010';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const fmt = n => (n ?? 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+const pad = n => String(n).padStart(2,'0');
+const toISODate = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const excelSerialToDate = n => new Date(Math.round((n - 25569) * 86400 * 1000));
+const amtsMatch = (a,b) => Math.abs((Number(a)||0) - (Number(b)||0)) < 0.01;
+const rawDateDisplay = dateRaw => {
+  if (dateRaw instanceof Date && !isNaN(dateRaw)) return toISODate(dateRaw);
+  if (dateRaw===null||dateRaw===undefined||dateRaw==='') return '(blank)';
+  return String(dateRaw);
+};
+
+/* ---------------------------------------------------------
+   REGISTER TYPE DEFINITIONS
+--------------------------------------------------------- */
+const TYPES = {
+  checks: {
+    label:'Checks', sheetMatch:/^checks$/i, table:'expenses',
+    columns:[
+      {key:'date',label:'Date',type:'date'},
+      {key:'checkNum',label:'Check #',type:'text'},
+      {key:'payee',label:'Payee',type:'text'},
+      {key:'category',label:'Category',type:'text'},
+      {key:'amount',label:'Amount',type:'number'}
+    ],
+    dedupeKind:'check_number',
+    payload: r => ({date:r.date, payment_method:'check', check_number:r.checkNum, payee:r.payee, category:r.category, amount:r.amount, notes:r.notes})
+  },
+  ewithdrawals: {
+    label:'E-Withdrawals', sheetMatch:/^ewithdrawals$/i, table:'expenses',
+    columns:[
+      {key:'date',label:'Date',type:'date'},
+      {key:'payee',label:'Name',type:'text'},
+      {key:'category',label:'Description',type:'text'},
+      {key:'amount',label:'Amount',type:'number'}
+    ],
+    dedupeKind:'electronic',
+    payload: r => ({date:r.date, payment_method:'electronic', check_number:null, payee:r.payee, category:r.category, amount:r.amount, notes:r.notes})
+  },
+  pettycash: {
+    label:'Petty Cash', sheetMatch:/^petty cash$/i, table:'expenses',
+    columns:[
+      {key:'date',label:'Date',type:'date'},
+      {key:'payee',label:'Name',type:'text'},
+      {key:'amount',label:'Amount',type:'number'}
+    ],
+    dedupeKind:'electronic',
+    payload: r => ({date:r.date, payment_method:'electronic', check_number:null, payee:r.payee, category:'Petty Cash', amount:r.amount, notes:r.notes})
+  },
+  payroll: {
+    label:'Payroll', sheetMatch:/^payroll$/i, table:'payroll_entries',
+    columns:[
+      {key:'date',label:'Pay Date',type:'date'},
+      {key:'employee_name',label:'Employee',type:'text'},
+      {key:'checkNum',label:'Check#/Method',type:'text'},
+      {key:'gross',label:'Gross',type:'number'},
+      {key:'fit',label:'FIT',type:'number'},
+      {key:'ssee',label:'SS EE',type:'number'},
+      {key:'med_ee',label:'Med EE',type:'number'},
+      {key:'tax',label:'Tax',type:'number'},
+      {key:'net',label:'Net',type:'number'}
+    ],
+    dedupeKind:'payroll',
+    payload: r => ({employee_name:r.employee_name, pay_date:r.date, check_number:r.checkNum||null, gross:r.gross, fit:r.fit, ssee:r.ssee, med_ee:r.med_ee, tax:r.tax, net:r.net})
+  },
+  loans: {
+    label:'Loan Activity', sheetMatch:/^loan activity$/i, table:'owner_loans',
+    columns:[
+      {key:'date',label:'Date',type:'date'},
+      {key:'person',label:'Person',type:'text'},
+      {key:'direction',label:'Direction',type:'select',options:['loan_in','repayment']},
+      {key:'amount',label:'Amount',type:'number'},
+      {key:'reference',label:'Reference',type:'text'}
+    ],
+    dedupeKind:'loans',
+    payload: r => ({person:r.person, direction:r.direction, date:r.date, amount:r.amount, reference:r.reference, notes:r.notes})
+  }
+};
+const TYPE_ORDER = ['checks','ewithdrawals','pettycash','payroll','loans'];
+
+let dataByType = {checks:[], ewithdrawals:[], pettycash:[], payroll:[], loans:[]};
+let rowSeq = 0;
+let activeType = 'checks';
+let showFlaggedOnly = false;
+
+/* ---------------------------------------------------------
+   TABS
+--------------------------------------------------------- */
+function renderTabs(){
+  const nav = document.getElementById('tabs');
+  nav.innerHTML = TYPE_ORDER.map(t=>{
+    const n = dataByType[t].length;
+    return `<button class="${t===activeType?'active':''}" onclick="switchTab('${t}')">${TYPES[t].label}${n?`<span class="count">(${n})</span>`:''}</button>`;
+  }).join('');
+}
+function switchTab(t){
+  activeType = t;
+  renderTabs();
+  renderReview();
+}
+
+/* ---------------------------------------------------------
+   DATE RESOLUTION (shared across sheet types)
+--------------------------------------------------------- */
+function resolveDate(dateRaw, lastGoodDate){
+  let resolvedDate = null, flagged = false, newLastGood = lastGoodDate;
+  if (dateRaw instanceof Date && !isNaN(dateRaw)){
+    resolvedDate = toISODate(dateRaw); newLastGood = resolvedDate;
+  } else if (typeof dateRaw === 'number'){
+    const d = excelSerialToDate(dateRaw);
+    if (!isNaN(d)){ resolvedDate = toISODate(d); newLastGood = resolvedDate; }
+  } else if (typeof dateRaw === 'string' && dateRaw.trim()){
+    const s = dateRaw.trim();
+    const md = s.match(/^(\d{1,2})\s*\/\s*(\d{1,2})$/);
+    if (md && lastGoodDate){
+      const [, mo, da] = md;
+      const year = lastGoodDate.slice(0,4);
+      resolvedDate = `${year}-${pad(mo)}-${pad(da)}`;
+      newLastGood = resolvedDate;
+    } else {
+      const parsed = new Date(s);
+      if (!isNaN(parsed) && s.length > 4){ resolvedDate = toISODate(parsed); newLastGood = resolvedDate; }
+      else { resolvedDate = lastGoodDate; flagged = true; }
+    }
+  } else {
+    resolvedDate = lastGoodDate; flagged = true;
+  }
+  return {date: resolvedDate || '', flagged, lastGoodDate:newLastGood};
+}
+
+/* ---------------------------------------------------------
+   PARSERS
+--------------------------------------------------------- */
+function parseChecksSheet(grid, fileName){
+  let headerIdx = grid.findIndex(r => r && String(r[0]||'').trim().toLowerCase()==='date' && String(r[1]||'').trim().toLowerCase().includes('check'));
+  if (headerIdx === -1) return;
+  let lastGoodDate = null, blankStreak = 0;
+  for (let i=headerIdx+1; i<grid.length; i++){
+    const r = grid[i] || [];
+    const [dateRaw, checkNum, payeeRaw, categoryRaw, amountRaw] = r;
+    const isEmpty = !checkNum && !payeeRaw && !amountRaw;
+    if (isEmpty){ blankStreak++; if (blankStreak>=3) break; continue; }
+    blankStreak = 0;
+    if (!checkNum) continue;
+    const isVoid = /^void$/i.test(String(payeeRaw||'').trim()) || /^void$/i.test(String(categoryRaw||'').trim());
+    const dr = resolveDate(dateRaw, lastGoodDate); lastGoodDate = dr.lastGoodDate;
+    dataByType.checks.push({
+      id:++rowSeq, file:fileName, date:dr.date, rawDate:rawDateDisplay(dateRaw), checkNum:String(checkNum).trim(),
+      payee: isVoid?'VOID':String(payeeRaw||'').trim(),
+      category: isVoid?'VOID':(String(categoryRaw||'').trim()||'Cost of Goods'),
+      amount: isVoid?0:(Number(amountRaw)||0),
+      isVoid, flagged:dr.flagged, dup:false, importAnyway:false,
+      notes: isVoid ? `Imported as VOID placeholder from ${fileName}` : `Imported from ${fileName}`
+    });
+  }
+}
+
+function parseFourColSheet(grid, fileName, type, categoryOverride){
+  let headerIdx = grid.findIndex(r => r && String(r[0]||'').trim().toLowerCase()==='date' && String(r[1]||'').trim().toLowerCase()==='name');
+  if (headerIdx === -1) return;
+  let lastGoodDate = null, blankStreak = 0;
+  for (let i=headerIdx+1; i<grid.length; i++){
+    const r = grid[i] || [];
+    const [dateRaw, payeeRaw, categoryRaw, amountRaw] = r;
+    const isEmpty = !payeeRaw && !amountRaw;
+    if (isEmpty){ blankStreak++; if (blankStreak>=3) break; continue; }
+    blankStreak = 0;
+    const dr = resolveDate(dateRaw, lastGoodDate); lastGoodDate = dr.lastGoodDate;
+    dataByType[type].push({
+      id:++rowSeq, file:fileName, date:dr.date, rawDate:rawDateDisplay(dateRaw),
+      payee:String(payeeRaw||'').trim(),
+      category: categoryOverride || String(categoryRaw||'').trim() || 'Uncategorized',
+      amount:Number(amountRaw)||0,
+      isVoid:false, flagged:dr.flagged, dup:false, importAnyway:false,
+      notes:`Imported from ${fileName}`
+    });
+  }
+}
+
+function parsePettyCashSheet(grid, fileName){
+  let headerIdx = grid.findIndex(r => r && String(r[0]||'').trim().toLowerCase()==='date' && String(r[1]||'').trim().toLowerCase()==='type');
+  if (headerIdx === -1) return;
+  let lastGoodDate = null, blankStreak = 0;
+  for (let i=headerIdx+1; i<grid.length; i++){
+    const r = grid[i] || [];
+    const [dateRaw, typeRaw, checkNumRaw, nameRaw, descRaw, amountRaw, extra6, extra7] = r;
+    const isFullyEmpty = !typeRaw && !checkNumRaw && !nameRaw && !amountRaw && !extra6 && !extra7;
+    if (isFullyEmpty){ blankStreak++; if (blankStreak>=3) break; continue; }
+    blankStreak = 0;
+    const typeStr = String(typeRaw||'').replace(/["()]/g,'').trim().toLowerCase();
+    if (typeStr !== 'electronic') continue; // skip Check-type rows (already in Checks register) and breakdown detail lines
+    if (!nameRaw && !amountRaw) continue;
+    const dr = resolveDate(dateRaw, lastGoodDate); lastGoodDate = dr.lastGoodDate;
+    dataByType.pettycash.push({
+      id:++rowSeq, file:fileName, date:dr.date, rawDate:rawDateDisplay(dateRaw),
+      payee:String(nameRaw||'').trim(),
+      category:'Petty Cash',
+      amount:Number(amountRaw)||0,
+      isVoid:false, flagged:dr.flagged, dup:false, importAnyway:false,
+      notes:`Imported from ${fileName} (electronic petty cash)`
+    });
+  }
+}
+
+function parsePayrollSheet(grid, fileName){
+  let currentEmployee = null;
+  let pendingName = null;
+  let blankStreak = 0;
+  for (let i=0;i<grid.length;i++){
+    const r = grid[i] || [];
+    const [c0,c1,c2,c3,c4,c5,c6] = r;
+    const isHeaderRow = String(c1||'').trim().toLowerCase().includes('check') && String(c2||'').trim().toLowerCase().includes('gross');
+    const looksLikeNameOnlyRow = c0 && !(c0 instanceof Date) && !c1 && !c2;
+
+    if (looksLikeNameOnlyRow && !isHeaderRow){ pendingName = String(c0).trim(); continue; }
+
+    if (isHeaderRow){
+      currentEmployee = (c0 && !(c0 instanceof Date)) ? String(c0).trim() : pendingName;
+      continue;
+    }
+
+    if (currentEmployee && c0 instanceof Date && c2 !== null && c2 !== undefined && c2 !== ''){
+      dataByType.payroll.push({
+        id:++rowSeq, file:fileName, date:toISODate(c0),
+        employee_name:currentEmployee,
+        checkNum: c1===null||c1===undefined ? '' : String(c1).trim(),
+        gross:Number(c2)||0, fit:Number(c3)||0, ssee:Number(c4)||0, med_ee:Number(c5)||0, tax:Number(c6)||0,
+        net:Number(r[7])||0,
+        isVoid:false, flagged:false, dup:false, importAnyway:false
+      });
+    }
+  }
+}
+
+function parseLoanActivitySheet(grid, fileName){
+  let headerIdx = grid.findIndex(r => r && String(r[0]||'').trim().toLowerCase()==='date' && String(r[1]||'').trim().toLowerCase().includes('description') && String(r[2]||'').trim().toLowerCase().includes('reference'));
+  if (headerIdx === -1) return;
+  let lastGoodDate = null, blankStreak = 0;
+  for (let i=headerIdx+1; i<grid.length; i++){
+    const r = grid[i] || [];
+    const [dateRaw, descRaw, refRaw, , amountRaw] = r;
+    const isEmpty = !descRaw && !refRaw && !amountRaw;
+    if (isEmpty){ blankStreak++; if (blankStreak>=10) break; continue; }
+    blankStreak = 0;
+    if (!descRaw || !amountRaw) continue;
+    const desc = String(descRaw).trim().toLowerCase();
+    let direction = null;
+    if (/^loan payment$/i.test(desc)) direction = 'repayment';
+    else if (/^loan$/i.test(desc)) direction = 'loan_in';
+    else continue;
+    const ref = String(refRaw||'').trim();
+    const person = ref.replace(/^(from|to)\s+/i,'').trim() || ref;
+    const dr = resolveDate(dateRaw, lastGoodDate); lastGoodDate = dr.lastGoodDate;
+    dataByType.loans.push({
+      id:++rowSeq, file:fileName, date:dr.date, rawDate:rawDateDisplay(dateRaw), person, direction,
+      amount:Number(amountRaw)||0, reference:ref,
+      isVoid:false, flagged:dr.flagged || !dateRaw, dup:false, importAnyway:false,
+      notes:`Imported from ${fileName}`
+    });
+  }
+}
+
+async function parseFiles(){
+  const input = document.getElementById('file-input');
+  const status = document.getElementById('parse-status');
+  if (!input.files.length){ status.textContent = 'Choose one or more files first.'; status.className='status-msg err'; return; }
+  dataByType = {checks:[], ewithdrawals:[], pettycash:[], payroll:[], loans:[]};
+  rowSeq = 0;
+  status.textContent = 'Parsing...';
+  status.className = 'status-msg';
+
+  for (const file of input.files){
+    try{
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, {type:'array', cellDates:true});
+      const sheetOf = re => wb.SheetNames.find(n => re.test(n.trim()));
+
+      const checksSheet = sheetOf(TYPES.checks.sheetMatch);
+      if (checksSheet) parseChecksSheet(XLSX.utils.sheet_to_json(wb.Sheets[checksSheet], {header:1, raw:true, defval:null}), file.name);
+
+      const ewSheet = sheetOf(TYPES.ewithdrawals.sheetMatch);
+      if (ewSheet) parseFourColSheet(XLSX.utils.sheet_to_json(wb.Sheets[ewSheet], {header:1, raw:true, defval:null}), file.name, 'ewithdrawals');
+
+      const pcSheet = sheetOf(TYPES.pettycash.sheetMatch);
+      if (pcSheet) parsePettyCashSheet(XLSX.utils.sheet_to_json(wb.Sheets[pcSheet], {header:1, raw:true, defval:null}), file.name);
+
+      const prSheet = sheetOf(TYPES.payroll.sheetMatch);
+      if (prSheet) parsePayrollSheet(XLSX.utils.sheet_to_json(wb.Sheets[prSheet], {header:1, raw:true, defval:null}), file.name);
+
+      const lnSheet = sheetOf(TYPES.loans.sheetMatch);
+      if (lnSheet) parseLoanActivitySheet(XLSX.utils.sheet_to_json(wb.Sheets[lnSheet], {header:1, raw:true, defval:null}), file.name);
+
+    } catch(err){
+      status.textContent += `\n${file.name}: error — ${err.message}`;
+    }
+  }
+
+  const total = TYPE_ORDER.reduce((s,t)=>s+dataByType[t].length,0);
+  status.textContent = `Parsed ${input.files.length} file(s). ${total} total rows across all registers — use the tabs above to review each.`;
+  status.className = 'status-msg ok';
+  document.getElementById('review-section').style.display = total ? '' : 'none';
+  showFlaggedOnly = true;
+  renderTabs();
+  renderReview();
+}
+
+document.getElementById('parse-btn').addEventListener('click', parseFiles);
+document.getElementById('clear-btn').addEventListener('click', ()=>{
+  document.getElementById('file-input').value = '';
+  dataByType = {checks:[], ewithdrawals:[], pettycash:[], payroll:[], loans:[]};
+  document.getElementById('review-section').style.display = 'none';
+  document.getElementById('parse-status').textContent = '';
+  renderTabs();
+});
+document.getElementById('check-dupes-btn').addEventListener('click', checkDuplicates);
+document.getElementById('import-btn').addEventListener('click', doImport);
+document.getElementById('show-flagged-only').addEventListener('click', ()=>{ showFlaggedOnly = true; renderReview(); });
+document.getElementById('show-all-rows').addEventListener('click', ()=>{ showFlaggedOnly = false; renderReview(); });
+
+/* ---------------------------------------------------------
+   REVIEW TABLE (generic, driven by TYPES[activeType].columns)
+--------------------------------------------------------- */
+function renderReview(){
+  const cfg = TYPES[activeType];
+  const rows = dataByType[activeType];
+  document.getElementById('review-title').textContent = `Review & fix — ${cfg.label}`;
+  document.getElementById('review-hint').textContent =
+    activeType === 'loans'
+      ? 'Yellow rows have an uncertain or missing date (the source sheet often omits per-row dates for repayments) — confirm before importing. Red rows appear to already exist and are excluded by default.'
+      : 'Yellow rows have an uncertain date, carried forward from the nearest prior entry — confirm or correct it. Red rows already exist in the register and are excluded from import by default; check the box to re-import anyway.';
+
+  const head = document.getElementById('review-head');
+  head.innerHTML = `<th style="width:26px;"></th><th>File</th>` + cfg.columns.map(c=>`<th${c.type==='number'?' class="amt-col"':''}>${c.label}</th>`).join('') + `<th>Status</th>`;
+
+  const flaggedTotal = rows.filter(r=>r.flagged).length;
+  const banner = document.getElementById('review-banner') || (()=>{
+    const el = document.createElement('div'); el.id = 'review-banner'; el.style.marginBottom='10px';
+    document.getElementById('review-hint').insertAdjacentElement('afterend', el);
+    return el;
+  })();
+  banner.innerHTML = flaggedTotal
+    ? `<span class="badge warn" style="font-size:12px; padding:5px 10px;">⚠ ${flaggedTotal} row${flaggedTotal===1?'':'s'} need date confirmation</span>`
+    : '';
+
+  const body = document.getElementById('review-body');
+  const visible = showFlaggedOnly ? rows.filter(r=>r.flagged || r.dup) : rows;
+  if (!visible.length){
+    body.innerHTML = `<tr><td colspan="${cfg.columns.length+3}" class="empty">No rows to show.</td></tr>`;
+  } else {
+    body.innerHTML = visible.map(r=>{
+      const cls = [r.flagged?'flagged':'', r.isVoid?'void-row':'', r.dup?'dup-row':''].filter(Boolean).join(' ');
+      let statusBadge = '';
+      if (r.dup) statusBadge = `<span class="badge dup">Exists</span>`;
+      else if (r.isVoid) statusBadge = `<span class="badge miss">Void</span>`;
+      else if (r.flagged) statusBadge = `<span class="badge warn">⚠ Confirm date</span>`;
+      else statusBadge = `<span class="badge">Ready</span>`;
+      const checkboxCell = r.dup
+        ? `<input type="checkbox" ${r.importAnyway?'checked':''} onchange="toggleImportAnyway('${activeType}',${r.id}, this.checked)" title="Import anyway">`
+        : '';
+      const cells = cfg.columns.map(c=>{
+        const val = r[c.key] ?? '';
+        if (c.type === 'select'){
+          return `<td><select class="row-input" onchange="updateRow('${activeType}',${r.id},'${c.key}',this.value)">${c.options.map(o=>`<option value="${o}" ${o===val?'selected':''}>${o}</option>`).join('')}</select></td>`;
+        }
+        const inputType = c.type === 'number' ? 'number' : (c.type === 'date' ? 'date' : 'text');
+        const step = c.type === 'number' ? ' step="0.01"' : '';
+        let extra = '';
+        if (c.key === 'date' && r.flagged && r.rawDate){
+          extra = `<div style="font-size:10.5px; color:var(--red-ink); margin-top:2px;">source said: <strong>${r.rawDate}</strong></div>`;
+        }
+        return `<td><input class="row-input" type="${inputType}"${step} value="${val}" onchange="updateRow('${activeType}',${r.id},'${c.key}',this.value)">${extra}</td>`;
+      }).join('');
+      return `<tr class="${cls}" data-id="${r.id}">
+        <td class="checkbox-cell">${checkboxCell}</td>
+        <td>${r.file}</td>
+        ${cells}
+        <td>${statusBadge}</td>
+      </tr>`;
+    }).join('');
+  }
+  renderStats();
+}
+
+function updateRow(type, id, field, value){
+  const r = dataByType[type].find(x=>x.id===id);
+  if (!r) return;
+  const col = TYPES[type].columns.find(c=>c.key===field);
+  r[field] = (col && col.type==='number') ? Number(value)||0 : value;
+  if (field === 'date' && value) r.flagged = false;
+  renderStats();
+}
+function toggleImportAnyway(type, id, checked){
+  const r = dataByType[type].find(x=>x.id===id);
+  if (r) r.importAnyway = checked;
+}
+
+function renderStats(){
+  const rows = dataByType[activeType];
+  const total = rows.length;
+  const flaggedCount = rows.filter(r=>r.flagged).length;
+  const voidCount = rows.filter(r=>r.isVoid).length;
+  const dupCount = rows.filter(r=>r.dup).length;
+  const amountKey = activeType==='payroll' ? 'net' : 'amount';
+  const sum = rows.filter(r=>!r.isVoid).reduce((s,r)=>s+(Number(r[amountKey])||0),0);
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="label">Total Rows</div><div class="value">${total}</div></div>
+    <div class="stat ${flaggedCount?'warn':''}"><div class="label">Needs Date Review</div><div class="value">${flaggedCount}</div></div>
+    ${activeType==='checks' ? `<div class="stat"><div class="label">Void Checks</div><div class="value">${voidCount}</div></div>` : ''}
+    <div class="stat ${dupCount?'dup':''}"><div class="label">Already In Register</div><div class="value">${dupCount}</div></div>
+    <div class="stat"><div class="label">Total $${activeType==='payroll'?' (net)':''}</div><div class="value">$${fmt(sum)}</div></div>
+  `;
+}
+
+/* ---------------------------------------------------------
+   DUPLICATE CHECK (per register type)
+--------------------------------------------------------- */
+async function checkDuplicates(){
+  const status = document.getElementById('import-status');
+  const rows = dataByType[activeType];
+  if (!rows.length){ status.textContent = 'Nothing parsed for this register yet.'; status.className='status-msg err'; return; }
+  status.textContent = 'Checking for existing entries...'; status.className = 'status-msg';
+  const kind = TYPES[activeType].dedupeKind;
+
+  try{
+    if (kind === 'check_number'){
+      const checkNums = [...new Set(rows.map(r=>r.checkNum).filter(Boolean))];
+      const existing = new Set();
+      for (let i=0;i<checkNums.length;i+=200){
+        const chunk = checkNums.slice(i,i+200);
+        const {data, error} = await sb.from('expenses').select('check_number').eq('payment_method','check').in('check_number', chunk);
+        if (error) throw error;
+        (data||[]).forEach(d => existing.add(String(d.check_number).trim()));
+      }
+      rows.forEach(r => { r.dup = existing.has(r.checkNum); });
+
+    } else if (kind === 'electronic'){
+      const dates = rows.map(r=>r.date).filter(Boolean).sort();
+      if (!dates.length){ status.textContent='No dated rows to check.'; status.className='status-msg err'; return; }
+      const {data, error} = await sb.from('expenses').select('date,payee,amount').eq('payment_method','electronic').gte('date', dates[0]).lte('date', dates[dates.length-1]);
+      if (error) throw error;
+      const existing = (data||[]).map(d => `${d.date}|${String(d.payee||'').trim().toLowerCase()}|${Number(d.amount).toFixed(2)}`);
+      rows.forEach(r => { r.dup = existing.includes(`${r.date}|${r.payee.trim().toLowerCase()}|${Number(r.amount).toFixed(2)}`); });
+
+    } else if (kind === 'payroll'){
+      const dates = rows.map(r=>r.date).filter(Boolean).sort();
+      if (!dates.length){ status.textContent='No dated rows to check.'; status.className='status-msg err'; return; }
+      const {data, error} = await sb.from('payroll_entries').select('employee_name,pay_date,check_number').gte('pay_date', dates[0]).lte('pay_date', dates[dates.length-1]);
+      if (error) throw error;
+      const existing = (data||[]).map(d => `${String(d.employee_name||'').trim().toLowerCase()}|${d.pay_date}|${String(d.check_number||'').trim()}`);
+      rows.forEach(r => { r.dup = existing.includes(`${r.employee_name.trim().toLowerCase()}|${r.date}|${String(r.checkNum||'').trim()}`); });
+
+    } else if (kind === 'loans'){
+      const {data, error} = await sb.from('owner_loans').select('person,direction,date,amount');
+      if (error) throw error;
+      const existing = (data||[]).map(d => `${String(d.person||'').trim().toLowerCase()}|${d.direction}|${d.date}|${Number(d.amount).toFixed(2)}`);
+      rows.forEach(r => { r.dup = existing.includes(`${r.person.trim().toLowerCase()}|${r.direction}|${r.date}|${Number(r.amount).toFixed(2)}`); });
+    }
+
+    const dupCount = rows.filter(r=>r.dup).length;
+    status.textContent = `Duplicate check complete. ${dupCount} row(s) already exist.`;
+    status.className = 'status-msg ok';
+    renderReview();
+  } catch(err){
+    status.textContent = 'Error checking duplicates: ' + err.message;
+    status.className = 'status-msg err';
+  }
+}
+
+/* ---------------------------------------------------------
+   IMPORT
+--------------------------------------------------------- */
+async function doImport(){
+  const status = document.getElementById('import-status');
+  const progress = document.getElementById('import-progress');
+  const cfg = TYPES[activeType];
+  const rows = dataByType[activeType];
+  const missingDate = rows.filter(r => !r.date);
+  if (missingDate.length){
+    status.textContent = `${missingDate.length} row(s) still have no date — fix those before importing.`;
+    status.className = 'status-msg err';
+    return;
+  }
+  const toImport = rows.filter(r => !r.dup || r.importAnyway);
+  if (!toImport.length){
+    status.textContent = 'Nothing to import (everything is either a duplicate or filtered out).';
+    status.className = 'status-msg err';
+    return;
+  }
+  if (!confirm(`Import ${toImport.length} row(s) into ${cfg.label}?`)) return;
+
+  document.getElementById('import-btn').disabled = true;
+  progress.style.display = ''; progress.value = 0;
+  let inserted = 0, failed = 0;
+  const CHUNK = 100;
+
+  for (let i=0;i<toImport.length;i+=CHUNK){
+    const chunk = toImport.slice(i,i+CHUNK).map(cfg.payload);
+    const {error} = await sb.from(cfg.table).insert(chunk);
+    if (error){ failed += chunk.length; status.textContent = `Error on batch starting row ${i}: ${error.message}`; status.className='status-msg err'; }
+    else inserted += chunk.length;
+    progress.value = Math.round(((i+chunk.length)/toImport.length)*100);
+  }
+
+  document.getElementById('import-btn').disabled = false;
+  status.textContent = `Done. Inserted ${inserted} row(s) into ${cfg.label}.` + (failed ? ` ${failed} failed — see above.` : '');
+  status.className = failed ? 'status-msg err' : 'status-msg ok';
+  renderTabs();
+}
+
+renderTabs();
+</script>
+</body>
+</html>
