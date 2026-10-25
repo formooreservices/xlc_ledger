@@ -279,7 +279,9 @@
       <div class="card">
         <div class="label">Sales</div>
         <div class="value" id="d-sales">—</div>
-        <button class="link" id="sales-detail-toggle" style="margin-top:6px;">View contracts in this total</button>
+        <!-- [CONTRACT-FEED OFF]
+<button class="link" id="sales-detail-toggle" style="margin-top:6px;">View contracts in this total</button>
+-->
       </div>
       <div class="card"><div class="label">Deposits</div><div class="value" id="d-deposits">—</div></div>
       <div class="card"><div class="label">Expenses</div><div class="value" id="d-expenses">—</div></div>
@@ -290,7 +292,8 @@
       <div class="card"><div class="label">Net Cash Movement</div><div class="value" id="d-net">—</div></div>
     </div>
 
-    <div class="panel" id="sales-detail-panel" style="display:none;">
+    <!-- [CONTRACT-FEED OFF]
+<div class="panel" id="sales-detail-panel" style="display:none;">
       <div class="panel-head">
         <h2>Sales Detail — contracts in this total</h2>
         <button class="ghost" onclick="document.getElementById('sales-detail-panel').style.display='none';">Hide</button>
@@ -306,6 +309,7 @@
         <div class="status-msg" id="sales-detail-summary"></div>
       </div>
     </div>
+-->
 
     <div class="panel">
       <div class="panel-head"><h2>Expenses by Category</h2></div>
@@ -1029,9 +1033,11 @@ async function loadDashboard(){
   const {start, end} = getPeriodRange('dash');
 
   const [{data:contracts, count:contractsCount}, {data:payments}, {data:expenses}, {data:payroll}, {data:loans}] = await Promise.all([
-    sb.from('contracts').select('id, contract_number, customer, contract_date, proforma_total, final_total, status', {count:'exact'})
-      .gte('contract_date', start).lte('contract_date', end)
-      .neq('status', 'open'),
+    Promise.resolve({data:[], count:0}), // [CONTRACT-FEED OFF] contracts not read for now
+    // [CONTRACT-FEED OFF] original query:
+    // sb.from('contracts').select('id, contract_number, customer, contract_date, proforma_total, final_total, status', {count:'exact'})
+    //   .gte('contract_date', start).lte('contract_date', end)
+    //   .neq('status', 'open'),
     sb.from('payments').select('amount, payment_date').gte('payment_date', start).lte('payment_date', end),
     sb.from('expenses').select('amount, category, date').gte('date', start).lte('date', end),
     sb.from('payroll_entries').select('net, pay_date').gte('pay_date', start).lte('pay_date', end),
@@ -1071,10 +1077,11 @@ async function loadDashboard(){
   document.getElementById('d-loans').innerHTML = money(loanBalance);
   document.getElementById('d-net').innerHTML = money(sumDeposits - sumExpenses - sumPayroll);
 
-  window._salesDetailContracts = contracts || [];
-  if (document.getElementById('sales-detail-panel').style.display !== 'none'){
-    renderSalesDetail();
-  }
+  // [CONTRACT-FEED OFF]
+  // window._salesDetailContracts = contracts || [];
+  // if (document.getElementById('sales-detail-panel').style.display !== 'none'){
+  //   renderSalesDetail();
+  // }
 
   const byCat = {};
   (expenses||[]).forEach(r=>{ byCat[r.category] = (byCat[r.category]||0) + Number(r.amount); });
@@ -1084,6 +1091,7 @@ async function loadDashboard(){
     : '<tr><td colspan="2" class="empty">No expenses logged for this month.</td></tr>';
 }
 
+/* [CONTRACT-FEED OFF] Sales Detail panel renderer and toggle
 function renderSalesDetail(){
   const list = window._salesDetailContracts || [];
   const body = document.getElementById('sales-detail-body');
@@ -1119,6 +1127,7 @@ document.getElementById('sales-detail-toggle').addEventListener('click', () => {
   panel.style.display = showing ? 'none' : '';
   if (!showing) renderSalesDetail();
 });
+*/
 
 /* ---------------------------------------------------------
    SALES & DEPOSITS (reads contracts + payments — no writes
@@ -1132,10 +1141,12 @@ async function loadSales(){
       .select('id, amount, payment_date, invoice_number, customer, deposit_reference, deposit_date, contract_id')
       .gte('payment_date', start).lte('payment_date', end)
       .order('payment_date', {ascending:true}),
-    sb.from('contracts')
-      .select('id, contract_number, invoice_number, customer, contract_date, final_total, proforma_total, status')
-      .gte('contract_date', start).lte('contract_date', end)
-      .neq('status', 'open'),
+    Promise.resolve({data:[], error:null}), // [CONTRACT-FEED OFF] contracts not read for now
+    // [CONTRACT-FEED OFF] original query:
+    // sb.from('contracts')
+    //   .select('id, contract_number, invoice_number, customer, contract_date, final_total, proforma_total, status')
+    //   .gte('contract_date', start).lte('contract_date', end)
+    //   .neq('status', 'open'),
   ]);
 
   const body = document.getElementById('sales-body');
@@ -1159,12 +1170,13 @@ async function loadSales(){
   // outside the selected range.
   const paymentContractIds = [...new Set(payments.map(r=>r.contract_id).filter(Boolean))];
   const missingIds = paymentContractIds.filter(id => !(id in saleAmtByContract));
-  if (missingIds.length){
-    const {data: extra} = await sb.from('contracts').select('id, contract_date, final_total, proforma_total, status').in('id', missingIds);
-    (extra||[]).forEach(c=>{
-      if (c.status !== 'open'){ saleAmtByContract[c.id] = saleAmtOf(c); saleDateByContract[c.id] = c.contract_date; }
-    });
-  }
+  // [CONTRACT-FEED OFF]
+  // if (missingIds.length){
+  //   const {data: extra} = await sb.from('contracts').select('id, contract_date, final_total, proforma_total, status').in('id', missingIds);
+  //   (extra||[]).forEach(c=>{
+  //     if (c.status !== 'open'){ saleAmtByContract[c.id] = saleAmtOf(c); saleDateByContract[c.id] = c.contract_date; }
+  //   });
+  // }
 
   payments = applySearch(payments, document.getElementById('sales-search').value, ['invoice_number','customer','deposit_reference']);
   const salesSearchTerm = document.getElementById('sales-search').value;
@@ -1246,7 +1258,7 @@ async function loadSales(){
       <td>${r.payment_date||''}</td>
       <td class="amt-col">${balance != null ? money(balance) : '—'}</td>
       <td class="row-actions">
-        <button class="link" onclick="openContractView('${r.contract_id||''}')">View</button>
+        <!-- [CONTRACT-FEED OFF] <button class="link" onclick="openContractView('${r.contract_id||''}')">View</button> -->
         <button class="link" data-save="${r.id}">Save</button>
         <button class="link" onclick="openEdit('payments','${r.id}')">Edit</button>
         <button class="link danger" onclick="deleteRow('payments','${r.id}')">Delete</button>
@@ -1268,7 +1280,7 @@ async function loadSales(){
       <td class="amt-col">—</td>
       <td>—</td>
       <td class="amt-col">${money(saleAmtByContract[c.id])}</td>
-      <td class="row-actions"><button class="link" onclick="openContractView('${c.id}')">View</button></td>
+      <td class="row-actions"><!-- [CONTRACT-FEED OFF] <button class="link" onclick="openContractView('${c.id}')">View</button> --></td>
     </tr>`);
 
   body.innerHTML = depositRowsHtml.join('') + unpaidRowsHtml.join('');
@@ -1309,6 +1321,7 @@ function openGenericView(title, linesHtml){
   document.getElementById('view-modal').classList.add('open');
 }
 
+/* [CONTRACT-FEED OFF] Contract view/edit modals (read and write the contracts table)
 async function openContractView(contractId){
   if (!contractId){
     openGenericView('Contract', '<p class="empty">No linked contract on this payment.</p>');
@@ -1372,6 +1385,7 @@ function openContractEdit(data, editable){
   };
   document.getElementById('edit-modal').classList.add('open');
 }
+*/
 
 function openDepositView(i){
   const dep = (window._salesGroupedRows || [])[i];
@@ -1382,7 +1396,7 @@ function openDepositView(i){
       <span class="k">${p.invoice_number || '—'} · ${p.customer || ''}</span>
       <span class="v">
         $${fmt(p.amount)}
-        <button class="link" style="margin-left:8px;" onclick="closeModal('view-modal');openContractView('${p.contract_id||''}')">View contract</button>
+        <!-- [CONTRACT-FEED OFF] <button class="link" style="margin-left:8px;" onclick="closeModal('view-modal');openContractView('${p.contract_id||''}')">View contract</button> -->
         <button class="link" style="margin-left:8px;" onclick="closeModal('view-modal');openEdit('payments','${p.id}')">Edit</button>
         <button class="link danger" style="margin-left:8px;" onclick="deleteRow('payments','${p.id}').then(ok=>{if(ok)closeModal('view-modal');})">Delete</button>
       </span>
