@@ -331,6 +331,12 @@ textarea{resize:vertical;min-height:50px;font-size:12px;}
 .sm-bar-track{flex:1;background:var(--bg2);border-radius:4px;height:14px;position:relative;overflow:hidden;}
 .sm-bar-fill{height:100%;border-radius:4px;transition:width .3s;}
 .sm-bar-val{width:76px;flex-shrink:0;text-align:right;font-size:10px;font-family:var(--mono);color:var(--text-dim);}
+
+/* ── PIPELINE BOARD + STAGE FORM (added) ── */
+.pipe-stage.board-active{background:var(--teal-dim);box-shadow:inset 0 -3px 0 var(--teal);}
+.stage-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 14px;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;background:var(--surface);font-size:13px;}
+.stage-summary b{font-family:var(--mono);color:var(--teal);}
+.stage-summary a{color:var(--teal);font-size:12px;text-decoration:underline;cursor:pointer;}
 </style>
 </head>
 <body>
@@ -353,6 +359,7 @@ textarea{resize:vertical;min-height:50px;font-size:12px;}
 
 <div class="nav" id="main-nav">
   <div class="nav-tab active" onclick="closeNavGroups();showPage('dashboard',this)">Dashboard</div>
+  <div class="nav-tab" onclick="closeNavGroups();showPage('board',this)">Pipeline Board</div>
   <div class="nav-tab" onclick="closeNavGroups();goAllContracts(this)">All Contracts</div>
   <div class="nav-sep"></div>
   <select class="nav-select" data-group="salesmenu" onchange="handleNavSelect(this)">
@@ -429,6 +436,41 @@ textarea{resize:vertical;min-height:50px;font-size:12px;}
       <tbody id="dash-tbody"></tbody>
     </table>
   </div>
+</div>
+
+<!-- ═══ PIPELINE BOARD (alternate dashboard — delete this block + its nav tab to revert) ═══ -->
+<div id="page-board" class="page">
+  <div class="pipeline">
+    <div class="pipe-stage p-open" id="bt-open" onclick="selectBoardStage('open')"><div class="pipe-dot"></div><div class="pipe-label">Open</div><div class="pipe-count" id="bcnt-open">—</div></div>
+    <div class="pipe-stage p-proforma" id="bt-proforma" onclick="selectBoardStage('proforma')"><div class="pipe-dot"></div><div class="pipe-label">Pro Forma</div><div class="pipe-count" id="bcnt-proforma">—</div></div>
+    <div class="pipe-stage p-booked" id="bt-booked" onclick="selectBoardStage('booked')"><div class="pipe-dot"></div><div class="pipe-label">Booked</div><div class="pipe-count" id="bcnt-booked">—</div></div>
+    <div class="pipe-stage p-invoiced" id="bt-invoiced" onclick="selectBoardStage('invoiced')"><div class="pipe-dot"></div><div class="pipe-label">Invoiced</div><div class="pipe-count" id="bcnt-invoiced">—</div></div>
+    <div class="pipe-stage p-reconciled" id="bt-reconciled" onclick="selectBoardStage('reconciled')"><div class="pipe-dot"></div><div class="pipe-label">Reconciled</div><div class="pipe-count" id="bcnt-reconciled">—</div></div>
+    <div class="pipe-stage p-trucking" id="bt-trucking" onclick="selectBoardStage('trucking')"><div class="pipe-dot"></div><div class="pipe-label">Trucking</div><div class="pipe-count" id="bcnt-trucking">—</div></div>
+    <div class="pipe-stage p-paid" id="bt-paid" onclick="selectBoardStage('paid')"><div class="pipe-dot"></div><div class="pipe-label">Paid</div><div class="pipe-count" id="bcnt-paid">—</div></div>
+  </div>
+  <div class="cards">
+    <div class="card c-gold">  <div class="card-label">Pro Forma Value</div>  <div class="card-value" id="bd-pf">—</div>  <div class="card-sub">Active</div></div>
+    <div class="card c-yellow"><div class="card-label">Invoiced Value</div>   <div class="card-value" id="bd-inv">—</div> <div class="card-sub">Awaiting payment</div></div>
+    <div class="card c-teal"> <div class="card-label">Payments Received</div><div class="card-value" id="bd-rcvd">—</div><div class="card-sub">Total collected</div></div>
+    <div class="card c-orange"><div class="card-label">Trucking Owed</div>   <div class="card-value" id="bd-trk">—</div> <div class="card-sub">Unpaid to truckers</div></div>
+    <div class="card c-green"><div class="card-label">Fully Settled</div>    <div class="card-value" id="bd-settled">—</div><div class="card-sub">Paid contracts</div></div>
+  </div>
+  <div class="sec-hdr">
+    <div class="sec-title" id="board-title">Open <span style="font-size:10px;color:var(--muted);font-weight:400;margin-left:4px">— click a tile above to switch stage</span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <input type="text" id="board-q" placeholder="Search…" oninput="renderBoard()" style="width:180px">
+      <select id="board-ot" onchange="renderBoard()"><option value="">All Order Types</option><option value="export">Export</option><option value="sales_order">Sales Order</option></select>
+      <button class="btn btn-primary btn-sm" onclick="openNewContract('export')">+ New Contract</button>
+      <button class="btn btn-gold btn-sm" onclick="openNewContract('sales_order')">+ New Sales Order</button>
+      <button class="btn btn-ghost btn-sm" onclick="window.print()">🖨 Print</button>
+      <button class="btn btn-teal btn-sm" onclick="exportAllData()">💾 Save / Export</button>
+    </div>
+  </div>
+  <div class="table-wrap"><table>
+    <thead id="board-thead"></thead>
+    <tbody id="board-tbody"></tbody>
+  </table></div>
 </div>
 
 <!-- ═══ ALL CONTRACTS ═══ -->
@@ -948,6 +990,10 @@ textarea{resize:vertical;min-height:50px;font-size:12px;}
       <button class="modal-close" onclick="closeModal('modal-contract')">×</button>
     </div>
     <div class="modal-body">
+      <div class="stage-summary" id="stage-summary" style="display:none">
+        <span id="ss-text"></span>
+        <a id="ss-toggle" onclick="toggleAllSections()">Show all sections</a>
+      </div>
       <!-- MINI PIPELINE -->
       <div class="mini-pipe" id="modal-mini-pipe">
         <div class="mp-step" id="mp-open">      <div class="mp-dot"></div><div class="mp-label">Open</div></div>
@@ -989,7 +1035,7 @@ textarea{resize:vertical;min-height:50px;font-size:12px;}
         </div>
         <div class="fg" id="fg-ordertype">
           <label>Order Type</label>
-          <select id="f-ordertype" onchange="applyOrderTypeUI(this.value)">
+          <select id="f-ordertype" onchange="applyOrderTypeUI(this.value);if(formMode==='new')setFormMode('new')">
             <option value="export">Export Contract</option>
             <option value="sales_order">Sales Order (Order-to-Cash)</option>
           </select>
@@ -1157,7 +1203,8 @@ textarea{resize:vertical;min-height:50px;font-size:12px;}
       <button class="btn btn-danger btn-sm" id="btn-delete" style="margin-right:auto;display:none" onclick="deleteContract()">Delete</button>
       <button class="btn btn-ghost" onclick="closeModal('modal-contract')">Cancel</button>
       <button class="btn btn-gold btn-sm" id="btn-view-docs" style="display:none" onclick="openDocs()">📄 Documents</button>
-      <button class="btn btn-primary" onclick="saveContract()">Save Contract</button>
+      <button class="btn btn-teal" id="btn-advance" style="display:none" onclick="advanceFromModal()">Advance →</button>
+      <button class="btn btn-primary" id="btn-save-contract" onclick="saveContract()">Save Contract</button>
     </div>
   </div>
 </div>
@@ -1482,7 +1529,7 @@ async function showPage(id,el){
     if(NAV_GROUPS[gid].includes(id))document.querySelector(`.nav-select[data-group="${gid}"]`)?.classList.add('group-active');
   });
   await loadAll(id==='trucking'||id==='sum-trucking'||id==='all'||id==='trucking-settlement'||id==='payments-settlement'||id==='trucking-statement');
-  const map={dashboard:renderDashboard,all:renderAll,
+  const map={dashboard:renderDashboard,board:renderDashboard,all:renderAll,
     'sum-open':()=>renderSum('open'),'sum-booked':()=>renderSum('booked'),
     'sum-invoice':()=>renderSum('invoice'),'sum-paid':()=>renderSum('paid'),
     payments:renderPayments,trucking:renderTrucking,statement:renderStatementPage,
@@ -1544,6 +1591,7 @@ function renderDashboard(){
   document.getElementById('d-rcvd').textContent=$$(rcvd);
   document.getElementById('d-trk').textContent=$$(trkOwed);
   document.getElementById('d-settled').textContent=settled;
+  if(typeof renderBoard==='function')renderBoard();
 
   const tbody=document.getElementById('dash-tbody');
   // Show contracts updated in last 7 days, or if none, last 15
@@ -3268,6 +3316,7 @@ function openNewContract(type='export'){
   renderTruckingCard(null);
   document.getElementById('modal-contract').classList.add('open');
   highlightStatusFields('open');
+  setFormMode('new');
 }
 function openEditModal(id){
   const c=contracts.find(x=>x.id===id);if(!c)return;
@@ -3300,6 +3349,7 @@ function openEditModal(id){
   applyOrderTypeUI(c.order_type||'export');
   renderTruckingCard(id);
   document.getElementById('modal-contract').classList.add('open');
+  setFormMode(EDIT_OPENS_STAGE_VIEW?'stage':'full', c.status);
 }
 
 function buildContractPayload(){
@@ -3333,6 +3383,7 @@ function buildContractPayload(){
   };
 }
 async function saveContract(){
+  if(formMode==='push'){const e=validatePush();if(e){toast(e,'err');return;}}
   const payload=buildContractPayload();
   try{
     setSS('loading','Saving…');
@@ -3376,7 +3427,8 @@ async function saveSection(){
     setSS('ok','Saved ✓');
     saveLocalBackup();
     renderDashboard();renderAll();
-  }catch(e){setSS('err','Error');toast('Save failed: '+e.message,'err');}
+    return true;
+  }catch(e){setSS('err','Error');toast('Save failed: '+e.message,'err');return false;}
 }
 // Clears just one section's fields (form only — click 💾 after to persist).
 // Useful e.g. when a status-pill click created an empty Final Invoice
@@ -4183,6 +4235,154 @@ async function exportAllData(){
     setSS('err','Error');
     toast('Export failed: '+e.message,'err');
   }
+}
+
+
+// ══════════════════════════════════════════
+// STAGE-BY-STAGE FORM  (new → only new-contract fields; Advance → only that stage's fields)
+// ══════════════════════════════════════════
+const EDIT_OPENS_STAGE_VIEW = true;   // false = Edit opens the full 6-section form like before
+let formMode='full';                  // 'new' | 'stage' | 'push' | 'full'
+let formStage='open';
+const EXPORT_FLOW=['open','proforma','booked','invoiced','reconciled','trucking','paid'];
+const SO_FLOW    =['open','booked','trucking','invoiced','reconciled','paid'];   // Order-to-Cash: no Pro Forma step
+const STAGE_CARD={open:'card-section-contract',proforma:'card-section-proforma',booked:'card-section-booking',
+  invoiced:'card-section-final',reconciled:'card-section-final',trucking:'card-section-trucking',paid:'card-section-payment'};
+const ALL_CARDS=['card-section-contract','card-section-proforma','card-section-booking','card-section-trucking','card-section-final','card-section-payment'];
+function nextStatusFor(c){
+  const so=c.order_type==='sales_order', flow=so?SO_FLOW:EXPORT_FLOW;
+  const st=(so&&c.status==='proforma')?'open':c.status;
+  const i=flow.indexOf(st);
+  return (i>=0&&i<flow.length-1)?flow[i+1]:null;
+}
+function setFormMode(mode,stage){
+  formMode=mode; if(stage)formStage=stage;
+  const ot=document.getElementById('f-ordertype')?.value||'export';
+  let show;
+  if(mode==='full') show=ALL_CARDS;
+  else if(mode==='new') show=ot==='sales_order'?['card-section-contract','card-section-proforma']:['card-section-contract'];
+  else show=[STAGE_CARD[formStage]];
+  ALL_CARDS.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=show.includes(id)?'':'none';});
+  const fgs=document.getElementById('fg-status');if(fgs)fgs.style.display=(mode==='full')?'':'none';
+
+  const lbl=statusLabels(ot);
+  const sum=document.getElementById('stage-summary'), txt=document.getElementById('ss-text'), tog=document.getElementById('ss-toggle');
+  if(mode==='new'||!editingId){ sum.style.display='none'; }
+  else{
+    const c=contracts.find(x=>x.id===editingId)||{};
+    const stageName=mode==='push'?('Moving to: '+lbl[formStage]):('Stage: '+(lbl[c.status]||c.status||''));
+    txt.innerHTML=`<b>${c.pf_number||'—'}</b> · ${c.customer||'—'}${c.contract_number?' · '+c.contract_number:''} &nbsp;|&nbsp; ${stageName}`;
+    sum.style.display='flex';
+    tog.style.display=(mode==='push')?'none':'';
+    tog.textContent=(mode==='full')?'← Back to stage view':'Show all sections';
+  }
+  // footer buttons
+  const save=document.getElementById('btn-save-contract'), adv=document.getElementById('btn-advance');
+  const c2=contracts.find(x=>x.id===editingId);
+  const nx=(mode==='stage'&&c2)?nextStatusFor(c2):null;
+  save.textContent = mode==='new'?'Create Contract' : mode==='push'?('Move to '+lbl[formStage]+' ✓') : mode==='stage'?'Save' : 'Save Contract';
+  adv.style.display=nx?'':'none';
+  if(nx)adv.textContent='Advance → '+lbl[nx];
+}
+function toggleAllSections(){
+  if(formMode==='full'){const c=contracts.find(x=>x.id===editingId);setFormMode('stage',c?.status||formStage);}
+  else setFormMode('full');
+}
+function validatePush(){
+  const v=id=>(document.getElementById(id)?.value||'').trim();
+  const st=v('f-status'), so=v('f-ordertype')==='sales_order';
+  if(st==='proforma'){ if(!v('f-pfd'))return 'Enter the pro forma date'; if(!pfLines.some(l=>l.desc))return 'Add at least one line item'; }
+  if(st==='booked'&&!so&&!v('f-bknum'))return 'Enter the booking number';
+  if(st==='invoiced'){ if(!v('f-fid'))return 'Enter the invoice date'; if(!finLines.some(l=>l.desc))return 'Add at least one invoice line item'; }
+  if(st==='paid'&&!v('f-payd'))return 'Enter the payment date';
+  return '';
+}
+async function advanceFromModal(){
+  const ok=await saveSection();      // keep whatever was typed on this stage
+  if(ok!==false)startPush(editingId);
+}
+// One-click move to the next stage: asks only for what that stage needs.
+async function startPush(id){
+  const c=contracts.find(x=>x.id===id);if(!c)return;
+  const nx=nextStatusFor(c);
+  if(!nx){toast('Already at the final stage','err');return;}
+  const lbl=statusLabels(c.order_type);
+  closeModal('modal-contract');
+  if(nx==='reconciled'){
+    if(confirm(`Mark ${c.pf_number||'this contract'} as ${lbl.reconciled}?`))await advanceStatus(id,'reconciled');
+    return;
+  }
+  if(nx==='trucking'){
+    if(confirm(`Move ${c.pf_number||'this contract'} to ${lbl.trucking} and add the trucking record?`)){
+      await advanceStatus(id,'trucking',true);toast('Status → '+lbl.trucking,'ok');openAddTrucking(id);
+    }
+    return;
+  }
+  openEditModal(id);                              // loads the saved values
+  const today=new Date().toISOString().split('T')[0], g=x=>document.getElementById(x);
+  g('f-status').value=nx;
+  if(nx==='proforma'&&!g('f-pfd').value)g('f-pfd').value=today;
+  if(nx==='invoiced'){
+    if(!finLines.some(l=>l.desc)){finLines=pfLines.filter(l=>l.desc).map(l=>({...l}));renderModalLines();}
+    if(!g('f-fid').value)g('f-fid').value=g('f-pd').value||today;
+  }
+  if(nx==='paid'&&!g('f-payd').value)g('f-payd').value=today;
+  updateMiniPipe();
+  setFormMode('push',nx);
+}
+
+// ══════════════════════════════════════════
+// PIPELINE BOARD (alternate dashboard)
+// ══════════════════════════════════════════
+let boardStage='open';
+function selectBoardStage(s){boardStage=s;renderBoard();}
+function renderBoard(){
+  if(!document.getElementById('board-tbody'))return;
+  const counts={};STATUSES.forEach(s=>counts[s]=0);
+  contracts.forEach(c=>{counts[c.status]=(counts[c.status]||0)+1;});
+  STATUSES.forEach(s=>{
+    const n=document.getElementById('bcnt-'+s);if(n)n.textContent=counts[s]||0;
+    document.getElementById('bt-'+s)?.classList.toggle('board-active',s===boardStage);
+  });
+  [['bd-pf','d-pf'],['bd-inv','d-inv'],['bd-rcvd','d-rcvd'],['bd-trk','d-trk'],['bd-settled','d-settled']].forEach(([a,b])=>{
+    const el=document.getElementById(a),src=document.getElementById(b);if(el&&src)el.textContent=src.textContent;
+  });
+  const names={open:'Open',proforma:'Pro Forma',booked:'Booked',invoiced:'Invoiced',reconciled:'Reconciled',trucking:'Trucking',paid:'Paid / Settled'};
+  const q=(document.getElementById('board-q')?.value||'').toLowerCase();
+  const ot=document.getElementById('board-ot')?.value||'';
+  const rows=contracts.filter(c=>c.status===boardStage
+    &&(!ot||(c.order_type||'export')===ot)
+    &&(!q||[c.pf_number,c.contract_number,c.customer,c.booking_number,c.container_number,c.bol_number,commodity(c)].some(v=>(v||'').toString().toLowerCase().includes(q))))
+    .sort((a,b)=>String(b.updated_at||b.created_at||'').localeCompare(String(a.updated_at||a.created_at||'')));
+  document.getElementById('board-title').innerHTML=`${names[boardStage]} <span style="font-size:11px;color:var(--muted);font-weight:400;margin-left:6px">— ${rows.length} contract${rows.length===1?'':'s'}</span>`;
+
+  const cols={ // [header, cell fn]
+    open:[['Contract Date',c=>fmtD(c.contract_date)],['Pro Forma',c=>`<span class="amt">${$$(c.proforma_total)}</span>`]],
+    proforma:[['PF Date',c=>fmtD(c.proforma_date||c.contract_date)],['Pro Forma',c=>`<span class="amt">${$$(c.proforma_total)}</span>`]],
+    booked:[['Booking #',c=>c.booking_number||'—'],['Booking Co.',c=>c.booking_company||'—'],['Container',c=>c.container_number||c.container||'—'],['BOL #',c=>c.bol_number||'—'],['Pickup',c=>fmtD(c.pickup_date)],['Pro Forma',c=>`<span class="amt">${$$(c.proforma_total)}</span>`]],
+    invoiced:[['Invoice Date',c=>fmtD(c.final_date||c.final_invoice_date)],['Final',c=>`<span class="amt">${$$(c.final_total)}</span>`],['Paid',c=>{const p=paidFor(c.id);return `<span class="amt ${p>0?'pos':''}">${p>0?$$(p):'—'}</span>`;}],['Balance',c=>{const b=balanceFor(c);return b===0?'<span class="pos">Paid</span>':`<span class="amt ${b>0?'neg':''}">${$$(b)}</span>`;}]],
+    reconciled:[['Final',c=>`<span class="amt">${$$(c.final_total)}</span>`],['Paid',c=>{const p=paidFor(c.id);return `<span class="amt ${p>0?'pos':''}">${p>0?$$(p):'—'}</span>`;}],['Balance',c=>{const b=balanceFor(c);return b===0?'<span class="pos">Paid</span>':`<span class="amt ${b>0?'neg':''}">${$$(b)}</span>`;}]],
+    trucking:[['Container',c=>c.container_number||c.container||'—'],['BOL #',c=>c.bol_number||'—'],['Pickup',c=>fmtD(c.pickup_date)],['Trucking Amt',c=>{const t=trkAmtFor(c.id);return `<span class="amt">${t>0?$$(t):'—'}</span>`;}]],
+    paid:[['Final',c=>`<span class="amt">${$$(c.final_total)}</span>`],['Paid',c=>{const p=paidFor(c.id);return `<span class="amt pos">${p>0?$$(p):'—'}</span>`;}],['Paid Date',c=>fmtD(c.payment_date)]],
+  }[boardStage];
+  document.getElementById('board-thead').innerHTML='<tr><th>Ticket #</th><th>Contract #</th><th>Customer</th><th>Commodity</th>'
+    +cols.map(x=>`<th>${x[0]}</th>`).join('')+'<th>Verified</th><th>Error</th><th>Actions</th></tr>';
+  const tbody=document.getElementById('board-tbody');
+  if(!rows.length){tbody.innerHTML=emptyRow(8+cols.length,`No contracts in ${names[boardStage]}.`);return;}
+  tbody.innerHTML=rows.map(c=>{
+    const nx=nextStatusFor(c);
+    return `<tr class="row-${c.status}${c.error_flag?' row-flagged-error':''}">
+      <td class="mono">${c.pf_number||'—'}${orderTypeTag(c)}</td><td class="mono">${c.contract_number||'—'}</td>
+      <td>${c.customer||'—'}</td><td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${commodity(c)}</td>
+      ${cols.map(x=>`<td>${x[1](c)}</td>`).join('')}
+      <td style="text-align:center">${auditBtn(c.id)}</td><td style="text-align:center">${errorBox(c.id)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-ghost btn-sm" onclick="viewContract('${c.id}')">View</button>
+        <button class="btn btn-ghost btn-sm" onclick="openEditModal('${c.id}')">Edit</button>
+        ${nx?`<button class="btn btn-teal btn-sm" onclick="startPush('${c.id}')">Advance →</button>`:''}
+        <button class="btn btn-gold btn-sm" onclick="openDocsForContract('${c.id}')">📄</button>
+      </td></tr>`;
+  }).join('');
 }
 
 // ══════════════════════════════════════════
