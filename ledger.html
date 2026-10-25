@@ -279,9 +279,7 @@
       <div class="card">
         <div class="label">Sales</div>
         <div class="value" id="d-sales">—</div>
-        <!-- [CONTRACT-FEED OFF]
-<button class="link" id="sales-detail-toggle" style="margin-top:6px;">View contracts in this total</button>
--->
+        <button class="link" id="sales-detail-toggle" style="margin-top:6px;">View contracts in this total</button>
       </div>
       <div class="card"><div class="label">Deposits</div><div class="value" id="d-deposits">—</div></div>
       <div class="card"><div class="label">Expenses</div><div class="value" id="d-expenses">—</div></div>
@@ -290,10 +288,14 @@
       <div class="card"><div class="label">Payroll</div><div class="value" id="d-payroll">—</div></div>
       <div class="card"><div class="label">Owner Loan Balance</div><div class="value" id="d-loans">—</div></div>
       <div class="card"><div class="label">Net Cash Movement</div><div class="value" id="d-net">—</div></div>
+      <div class="card clickable" onclick="openUnclearedChecks()" title="Click to see these checks in the Checks Register">
+        <div class="label">Uncleared Checks (all dates)</div>
+        <div class="value" id="d-uncleared">—</div>
+        <div class="status-msg" id="d-uncleared-n" style="margin-top:4px;"></div>
+      </div>
     </div>
 
-    <!-- [CONTRACT-FEED OFF]
-<div class="panel" id="sales-detail-panel" style="display:none;">
+    <div class="panel" id="sales-detail-panel" style="display:none;">
       <div class="panel-head">
         <h2>Sales Detail — contracts in this total</h2>
         <button class="ghost" onclick="document.getElementById('sales-detail-panel').style.display='none';">Hide</button>
@@ -309,7 +311,6 @@
         <div class="status-msg" id="sales-detail-summary"></div>
       </div>
     </div>
--->
 
     <div class="panel">
       <div class="panel-head"><h2>Expenses by Category</h2></div>
@@ -349,6 +350,7 @@
           <tbody id="sales-body"><tr><td colspan="11" class="empty">Loading…</td></tr></tbody>
         </table>
         <div class="status-msg" id="sales-summary"></div>
+        <button class="link" id="sales-restore-btn" style="display:none;margin-top:6px;" onclick="openRestoreSales()"></button>
       </div>
     </div>
   </section>
@@ -397,6 +399,7 @@
         <select id="exp-mode"><option value="month">Month</option><option value="ytd">Year to Date</option></select>
         <input type="month" id="exp-month">
         <select id="exp-year" style="display:none;"></select>
+        <select id="exp-filter-match" title="Filter by bank match status"><option value="">Bank match: All</option><option value="matched">Matched only</option><option value="unmatched">Unmatched only</option><option value="uncleared-all">Unmatched — all dates</option></select>
         <select id="exp-filter-method"><option value="check" selected>Check</option><option value="">All methods</option><option value="electronic">Electronic</option></select>
         <select id="exp-filter-category"><option value="">All categories</option></select>
         <input type="text" id="exp-search" placeholder="Search payee, category, check #…" style="min-width:180px;">
@@ -789,6 +792,11 @@
     <div class="panel-head" id="rec-results-head" style="display:none;background:none;border:none;padding:0 0 10px;">
       <h2 style="font-size:17px;">Reconciliation Results</h2>
       <div class="toolbar">
+        <select id="rec-filter-select" class="no-print" onchange="setRecGroup(this.value)" title="Show matched or unmatched items">
+          <option value="">Show: All items</option>
+          <option value="group-matched">Matched only</option>
+          <option value="group-unmatched">Unmatched only</option>
+        </select>
         <button class="ghost no-print" onclick="printView('reconcile')">🖨 Print</button>
         <button class="ghost no-print" onclick="emailView('reconcile')">✉ Email</button>
       </div>
@@ -1029,15 +1037,149 @@ document.getElementById('dash-mode').addEventListener('change', e=>{
 /* ---------------------------------------------------------
    DASHBOARD
 --------------------------------------------------------- */
+/* ---------------------------------------------------------
+   LEDGER-SIDE SALE RECORDS
+   Contracts stay the source of truth and are only ever READ here.
+   Edit / Delete on a sale writes to ledger_sale_overrides (one row
+   per contract_id) — the contracts table is never modified.
+     - Delete  = excluded:true (hidden from the ledger, restorable)
+     - Edit    = customer / invoice # / sale amount / notes overrides
+--------------------------------------------------------- */
+window._saleIndex = window._saleIndex || {};
+function ledgerEsc(v){ return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+async function fetchSaleOverrides(){
+  const {data, error} = await sb.from('ledger_sale_overrides').select('*');
+  if (error){ console.warn('ledger_sale_overrides unavailable:', error.message); return {}; }
+  const map = {};
+  (data||[]).forEach(o => { map[String(o.contract_id)] = o; });
+  return map;
+}
+function applySaleOverride(c, ov){
+  return {...c, _ov: ov || null,
+    customer: (ov && ov.customer) || c.customer,
+    invoice_number: (ov && ov.invoice_number) || c.invoice_number};
+}
+function saleValueOf(c){
+  if (c._ov && c._ov.sale_amount != null) return Number(c._ov.sale_amount);
+  return Number(c.final_total) || Number(c.proforma_total) || 0;
+}
+function splitSales(list, overrides){
+  const active = [], removed = [];
+  (list||[]).forEach(c => {
+    const ov = overrides[String(c.id)];
+    const m = applySaleOverride(c, ov);
+    window._saleIndex[c.id] = c.contract_number || c.invoice_number || 'this sale';
+    (ov && ov.excluded ? removed : active).push(m);
+  });
+  return {active, removed};
+}
+async function reloadSalesViews(){ await Promise.all([loadSales(), loadDashboard()]); }
+
+async function deleteSale(contractId){
+  const label = window._saleIndex[contractId] || 'this sale';
+  if (!confirm(`Remove ${label} from the ledger?\n\nThe contract itself is NOT changed — this only hides the sale here. You can bring it back with "Restore removed".`)) return;
+  const {error} = await sb.from('ledger_sale_overrides').upsert({contract_id:String(contractId), excluded:true, updated_at:new Date().toISOString()}, {onConflict:'contract_id'});
+  if (error){ alert('Could not remove from ledger: ' + error.message); return; }
+  await reloadSalesViews();
+}
+async function restoreSale(contractId){
+  const {error} = await sb.from('ledger_sale_overrides').upsert({contract_id:String(contractId), excluded:false, updated_at:new Date().toISOString()}, {onConflict:'contract_id'});
+  if (error){ alert('Could not restore: ' + error.message); return; }
+  closeModal('view-modal');
+  await reloadSalesViews();
+}
+function updateRestoreBtn(removed){
+  window._removedSales = removed || [];
+  const btn = document.getElementById('sales-restore-btn');
+  if (!btn) return;
+  btn.style.display = window._removedSales.length ? '' : 'none';
+  btn.textContent = `Restore removed (${window._removedSales.length})`;
+}
+function openRestoreSales(){
+  const list = window._removedSales || [];
+  const html = list.length ? list.map(c => `
+    <div class="view-line">
+      <span class="k">${ledgerEsc(c.contract_number || c.invoice_number || '—')} · ${ledgerEsc(c.customer || '')} · ${ledgerEsc(c.contract_date || '')}</span>
+      <span class="v">$${fmt(saleValueOf(c))} <button class="link" style="margin-left:8px;" onclick="restoreSale('${c.id}')">Restore</button></span>
+    </div>`).join('') : '<p class="empty">Nothing removed for this period.</p>';
+  openGenericView('Removed from ledger', html);
+}
+
+async function openSaleView(contractId){
+  if (!contractId){
+    openGenericView('Sale', '<p class="empty">No linked sale on this payment.</p>');
+    return;
+  }
+  const {data, error} = await sb.from('contracts').select('*').eq('id', contractId).single();
+  if (error || !data){
+    openGenericView('Sale', `<p class="empty">${ledgerEsc(error?.message || 'Contract not found.')}</p>`);
+    return;
+  }
+  const overrides = await fetchSaleOverrides();
+  const ov = overrides[String(data.id)] || null;
+  const c = applySaleOverride(data, ov);
+  const money$ = v => v != null ? `$${fmt(v)}` : null;
+  const lines = [
+    ['Contract #', c.contract_number], ['Invoice #', c.invoice_number], ['Customer', c.customer],
+    ['Contract Date', c.contract_date], ['Status', c.status],
+    ['Pro Forma', money$(c.proforma_total)], ['Final', money$(c.final_total)],
+    ['Sale Amount (ledger)', money$(saleValueOf(c))],
+    ['Ledger notes', ov && ov.notes],
+  ];
+  document.getElementById('view-modal-title').textContent = `Sale ${c.contract_number || ''}`;
+  document.getElementById('view-modal-body').innerHTML =
+    lines.map(([k,v])=>`<div class="view-line"><span class="k">${k}</span><span class="v">${ledgerEsc(v) || '—'}</span></div>`).join('') +
+    `<p class="status-msg" style="margin-top:10px;">Contract details are read-only here. Edits on this screen apply to the ledger record only.</p>`;
+  const editBtn = document.getElementById('view-modal-edit-btn');
+  editBtn.style.display = '';
+  editBtn.onclick = () => { closeModal('view-modal'); openSaleEdit(data.id); };
+  document.getElementById('view-modal').classList.add('open');
+}
+
+async function openSaleEdit(contractId){
+  const {data, error} = await sb.from('contracts').select('*').eq('id', contractId).single();
+  if (error || !data){ alert('Could not load sale: ' + (error?.message || 'not found')); return; }
+  const overrides = await fetchSaleOverrides();
+  const ov = overrides[String(data.id)] || null;
+  const baseAmt = Number(data.final_total) || Number(data.proforma_total) || 0;
+  document.getElementById('edit-modal-title').textContent = `Edit Sale ${data.contract_number || ''}`;
+  document.getElementById('edit-modal-body').innerHTML =
+    `<p class="status-msg" style="margin-bottom:10px;">Ledger record only — the contract is not changed. Clear a field to go back to the contract's value.</p>` +
+    `<label>Customer</label><input type="text" name="customer" value="${ledgerEsc((ov && ov.customer) || data.customer || '')}" style="margin-bottom:10px;">` +
+    `<label>Invoice #</label><input type="text" name="invoice_number" value="${ledgerEsc((ov && ov.invoice_number) || data.invoice_number || '')}" style="margin-bottom:10px;">` +
+    `<label>Sale Amount</label><input type="number" step="0.01" name="sale_amount" value="${ov && ov.sale_amount != null ? ov.sale_amount : baseAmt}" style="margin-bottom:10px;">` +
+    `<label>Notes</label><input type="text" name="notes" value="${ledgerEsc((ov && ov.notes) || '')}" style="margin-bottom:10px;">`;
+  const form = document.getElementById('edit-modal-form');
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const clean = (v, base) => { v = (v||'').trim(); return (v === '' || v === (base||'')) ? null : v; };
+    const amtRaw = (fd.get('sale_amount')||'').trim();
+    const amt = (amtRaw === '' || Number(amtRaw) === baseAmt) ? null : Number(amtRaw);
+    const payload = {
+      contract_id: String(data.id),
+      customer: clean(fd.get('customer'), data.customer),
+      invoice_number: clean(fd.get('invoice_number'), data.invoice_number),
+      sale_amount: amt,
+      notes: (fd.get('notes')||'').trim() || null,
+      updated_at: new Date().toISOString(),
+    };
+    const {error: upErr} = await sb.from('ledger_sale_overrides').upsert(payload, {onConflict:'contract_id'});
+    if (upErr){ alert('Could not save ledger changes: ' + upErr.message); return; }
+    closeModal('edit-modal');
+    await reloadSalesViews();
+  };
+  document.getElementById('edit-modal').classList.add('open');
+}
+
 async function loadDashboard(){
   const {start, end} = getPeriodRange('dash');
 
-  const [{data:contracts, count:contractsCount}, {data:payments}, {data:expenses}, {data:payroll}, {data:loans}] = await Promise.all([
-    Promise.resolve({data:[], count:0}), // [CONTRACT-FEED OFF] contracts not read for now
-    // [CONTRACT-FEED OFF] original query:
-    // sb.from('contracts').select('id, contract_number, customer, contract_date, proforma_total, final_total, status', {count:'exact'})
-    //   .gte('contract_date', start).lte('contract_date', end)
-    //   .neq('status', 'open'),
+  const [{data:contractsRaw, count:contractsCount}, {data:payments}, {data:expenses}, {data:payroll}, {data:loans}] = await Promise.all([
+    sb.from('contracts').select('id, contract_number, customer, contract_date, proforma_total, final_total, status', {count:'exact'})
+      .gte('contract_date', start).lte('contract_date', end)
+      .neq('status', 'open'),
     sb.from('payments').select('amount, payment_date').gte('payment_date', start).lte('payment_date', end),
     sb.from('expenses').select('amount, category, date').gte('date', start).lte('date', end),
     sb.from('payroll_entries').select('net, pay_date').gte('pay_date', start).lte('pay_date', end),
@@ -1049,7 +1191,8 @@ async function loadDashboard(){
   // contract's Pro Forma has gone out is it "guaranteed a payment", so it
   // shouldn't show as Sales until then. A contract counts at its final
   // total once invoiced, or its pro forma total before that.
-  const sumSales = (contracts||[]).reduce((s,r)=>s+(Number(r.final_total)||Number(r.proforma_total)||0),0);
+  const contracts = splitSales(contractsRaw, await fetchSaleOverrides()).active; // ledger removals/edits applied
+  const sumSales = contracts.reduce((s,r)=>s+saleValueOf(r),0);
   const sumDeposits = (payments||[]).reduce((s,r)=>s+(Number(r.amount)||0),0);
   const sumExpenses = (expenses||[]).reduce((s,r)=>s+(Number(r.amount)||0),0);
   const sumLiabilities = (expenses||[]).filter(r=>isLiabilityCategory(r.category)).reduce((s,r)=>s+(Number(r.amount)||0),0);
@@ -1064,10 +1207,10 @@ async function loadDashboard(){
   // Supabase's REST API caps a single request at 1000 rows by default —
   // if the true count is higher than what came back, the Sales total
   // above is silently short. Surface that loudly instead of guessing.
-  const truncated = contractsCount != null && contracts && contractsCount > contracts.length;
+  const truncated = contractsCount != null && contractsRaw && contractsCount > contractsRaw.length;
   const salesLabel = document.getElementById('d-sales');
   salesLabel.innerHTML = money(sumSales, false) + (truncated
-    ? ` <span class="neg" style="font-size:11px;" title="Supabase returned ${contracts.length} of ${contractsCount} matching contracts — this total is understated.">⚠ partial (${contracts.length}/${contractsCount})</span>`
+    ? ` <span class="neg" style="font-size:11px;" title="Supabase returned ${contractsRaw.length} of ${contractsCount} matching contracts — this total is understated.">⚠ partial (${contractsRaw.length}/${contractsCount})</span>`
     : '');
   document.getElementById('d-deposits').innerHTML = money(sumDeposits, false);
   document.getElementById('d-expenses').innerHTML = money(sumExpenses, false);
@@ -1077,11 +1220,28 @@ async function loadDashboard(){
   document.getElementById('d-loans').innerHTML = money(loanBalance);
   document.getElementById('d-net').innerHTML = money(sumDeposits - sumExpenses - sumPayroll);
 
-  // [CONTRACT-FEED OFF]
-  // window._salesDetailContracts = contracts || [];
-  // if (document.getElementById('sales-detail-panel').style.display !== 'none'){
-  //   renderSalesDetail();
-  // }
+  // Uncleared checks: every check in the register not yet matched to a bank
+  // statement, regardless of the period selected above.
+  const {data: unclearedData, count: unclearedCount, error: unclearedErr} =
+    await sb.from('expenses').select('amount, bank_stmt_file', {count:'exact'})
+      .eq('payment_method', 'check').is('bank_stmt_file', null);
+  const unclearedEl = document.getElementById('d-uncleared');
+  const unclearedNEl = document.getElementById('d-uncleared-n');
+  if (unclearedErr){
+    unclearedEl.textContent = '—';
+    unclearedNEl.textContent = unclearedErr.message;
+  } else {
+    const uncleared = (unclearedData||[]).filter(r => !r.bank_stmt_file);
+    const unclearedSum = uncleared.reduce((s,r)=>s+(Number(r.amount)||0),0);
+    const partial = unclearedCount != null && unclearedCount > (unclearedData||[]).length;
+    unclearedEl.innerHTML = money(unclearedSum, false) + (partial ? ' <span class="neg" style="font-size:11px;" title="Supabase capped the result; this total is understated.">⚠ partial</span>' : '');
+    unclearedNEl.textContent = `${uncleared.length} check${uncleared.length===1?'':'s'} not matched to a statement`;
+  }
+
+  window._salesDetailContracts = contracts || [];
+  if (document.getElementById('sales-detail-panel').style.display !== 'none'){
+    renderSalesDetail();
+  }
 
   const byCat = {};
   (expenses||[]).forEach(r=>{ byCat[r.category] = (byCat[r.category]||0) + Number(r.amount); });
@@ -1091,7 +1251,13 @@ async function loadDashboard(){
     : '<tr><td colspan="2" class="empty">No expenses logged for this month.</td></tr>';
 }
 
-/* [CONTRACT-FEED OFF] Sales Detail panel renderer and toggle
+function openUnclearedChecks(){
+  document.querySelector('button[data-view="expenses"]').click();
+  document.getElementById('exp-filter-method').value = 'check';
+  document.getElementById('exp-filter-match').value = 'uncleared-all';
+  loadExpenses();
+}
+
 function renderSalesDetail(){
   const list = window._salesDetailContracts || [];
   const body = document.getElementById('sales-detail-body');
@@ -1103,21 +1269,26 @@ function renderSalesDetail(){
   }
   const sorted = [...list].sort((a,b)=>(a.contract_date||'').localeCompare(b.contract_date||''));
   body.innerHTML = sorted.map(c=>{
-    const usedFinal = c.final_total != null && c.final_total !== 0;
-    const value = usedFinal ? c.final_total : (c.proforma_total || 0);
+    const hasOv = c._ov && c._ov.sale_amount != null;
+    const usedFinal = !hasOv && c.final_total != null && c.final_total !== 0;
+    const value = saleValueOf(c);
     return `<tr>
       <td>${c.contract_number||'—'}</td>
       <td>${c.customer||''}</td>
       <td>${c.contract_date||''}</td>
       <td class="amt-col">${c.proforma_total!=null?money(c.proforma_total,false):'—'}</td>
       <td class="amt-col">${c.final_total!=null?money(c.final_total,false):'—'}</td>
-      <td><span class="badge" style="background:${usedFinal?'var(--green)':'var(--gold)'};">${usedFinal?'Final':'Pro Forma'}</span></td>
+      <td><span class="badge" style="background:${hasOv?'#555':usedFinal?'var(--green)':'var(--gold)'};">${hasOv?'Ledger':usedFinal?'Final':'Pro Forma'}</span></td>
       <td class="amt-col">${money(value,false)}</td>
       <td>${c.status||''}</td>
-      <td><button class="link" onclick="openContractView('${c.id}')">View</button></td>
+      <td class="row-actions">
+        <button class="link" onclick="openSaleView('${c.id}')">View</button>
+        <button class="link" onclick="openSaleEdit('${c.id}')">Edit</button>
+        <button class="link danger" onclick="deleteSale('${c.id}')">Delete</button>
+      </td>
     </tr>`;
   }).join('');
-  const total = list.reduce((s,c)=>s+(Number(c.final_total)||Number(c.proforma_total)||0),0);
+  const total = list.reduce((s,c)=>s+saleValueOf(c),0);
   summary.textContent = `${list.length} contract${list.length===1?'':'s'} · Total: $${fmt(total)}`;
 }
 
@@ -1127,7 +1298,6 @@ document.getElementById('sales-detail-toggle').addEventListener('click', () => {
   panel.style.display = showing ? 'none' : '';
   if (!showing) renderSalesDetail();
 });
-*/
 
 /* ---------------------------------------------------------
    SALES & DEPOSITS (reads contracts + payments — no writes
@@ -1136,17 +1306,15 @@ document.getElementById('sales-detail-toggle').addEventListener('click', () => {
 async function loadSales(){
   const {start,end} = getPeriodRange('sales');
 
-  const [{data:payData, error:payError}, {data:salesData, error:salesError}] = await Promise.all([
+  const [{data:payData, error:payError}, {data:salesRaw, error:salesError}] = await Promise.all([
     sb.from('payments')
       .select('id, amount, payment_date, invoice_number, customer, deposit_reference, deposit_date, contract_id')
       .gte('payment_date', start).lte('payment_date', end)
       .order('payment_date', {ascending:true}),
-    Promise.resolve({data:[], error:null}), // [CONTRACT-FEED OFF] contracts not read for now
-    // [CONTRACT-FEED OFF] original query:
-    // sb.from('contracts')
-    //   .select('id, contract_number, invoice_number, customer, contract_date, final_total, proforma_total, status')
-    //   .gte('contract_date', start).lte('contract_date', end)
-    //   .neq('status', 'open'),
+    sb.from('contracts')
+      .select('id, contract_number, invoice_number, customer, contract_date, final_total, proforma_total, status')
+      .gte('contract_date', start).lte('contract_date', end)
+      .neq('status', 'open'),
   ]);
 
   const body = document.getElementById('sales-body');
@@ -1154,12 +1322,14 @@ async function loadSales(){
   if (payError || salesError){ body.innerHTML = `<tr><td colspan="11" class="empty">${(payError||salesError).message}</td></tr>`; summary.textContent=''; return; }
 
   let payments = payData || [];
-  const sales = salesData || [];
+  const overrides = await fetchSaleOverrides();
+  const {active: sales, removed: removedSales} = splitSales(salesRaw, overrides); // ledger removals/edits applied
+  updateRestoreBtn(removedSales);
 
   // Sale Amt for a contract — final_total once invoiced, otherwise
   // proforma_total. Open contracts never appear here since they're
   // excluded from the query already.
-  const saleAmtOf = c => Number(c.final_total) || Number(c.proforma_total) || 0;
+  const saleAmtOf = c => saleValueOf(c);
   const saleAmtByContract = {};
   const saleDateByContract = {};
   sales.forEach(c => { saleAmtByContract[c.id] = saleAmtOf(c); saleDateByContract[c.id] = c.contract_date; });
@@ -1170,13 +1340,13 @@ async function loadSales(){
   // outside the selected range.
   const paymentContractIds = [...new Set(payments.map(r=>r.contract_id).filter(Boolean))];
   const missingIds = paymentContractIds.filter(id => !(id in saleAmtByContract));
-  // [CONTRACT-FEED OFF]
-  // if (missingIds.length){
-  //   const {data: extra} = await sb.from('contracts').select('id, contract_date, final_total, proforma_total, status').in('id', missingIds);
-  //   (extra||[]).forEach(c=>{
-  //     if (c.status !== 'open'){ saleAmtByContract[c.id] = saleAmtOf(c); saleDateByContract[c.id] = c.contract_date; }
-  //   });
-  // }
+  if (missingIds.length){
+    const {data: extra} = await sb.from('contracts').select('id, contract_date, final_total, proforma_total, status').in('id', missingIds);
+    (extra||[]).forEach(c=>{
+      const ovx = overrides[String(c.id)] || null;
+      if (c.status !== 'open' && !(ovx && ovx.excluded)){ saleAmtByContract[c.id] = saleAmtOf(applySaleOverride(c, ovx)); saleDateByContract[c.id] = c.contract_date; }
+    });
+  }
 
   payments = applySearch(payments, document.getElementById('sales-search').value, ['invoice_number','customer','deposit_reference']);
   const salesSearchTerm = document.getElementById('sales-search').value;
@@ -1258,7 +1428,7 @@ async function loadSales(){
       <td>${r.payment_date||''}</td>
       <td class="amt-col">${balance != null ? money(balance) : '—'}</td>
       <td class="row-actions">
-        <!-- [CONTRACT-FEED OFF] <button class="link" onclick="openContractView('${r.contract_id||''}')">View</button> -->
+        <button class="link" onclick="openSaleView('${r.contract_id||''}')">View</button>
         <button class="link" data-save="${r.id}">Save</button>
         <button class="link" onclick="openEdit('payments','${r.id}')">Edit</button>
         <button class="link danger" onclick="deleteRow('payments','${r.id}')">Delete</button>
@@ -1280,7 +1450,11 @@ async function loadSales(){
       <td class="amt-col">—</td>
       <td>—</td>
       <td class="amt-col">${money(saleAmtByContract[c.id])}</td>
-      <td class="row-actions"><!-- [CONTRACT-FEED OFF] <button class="link" onclick="openContractView('${c.id}')">View</button> --></td>
+      <td class="row-actions">
+        <button class="link" onclick="openSaleView('${c.id}')">View</button>
+        <button class="link" onclick="openSaleEdit('${c.id}')">Edit</button>
+        <button class="link danger" onclick="deleteSale('${c.id}')">Delete</button>
+      </td>
     </tr>`);
 
   body.innerHTML = depositRowsHtml.join('') + unpaidRowsHtml.join('');
@@ -1321,7 +1495,7 @@ function openGenericView(title, linesHtml){
   document.getElementById('view-modal').classList.add('open');
 }
 
-/* [CONTRACT-FEED OFF] Contract view/edit modals (read and write the contracts table)
+/* [LEDGER-ONLY EDITS] Old contract view/edit — wrote to the contracts table; replaced by openSaleView/openSaleEdit (ledger_sale_overrides only)
 async function openContractView(contractId){
   if (!contractId){
     openGenericView('Contract', '<p class="empty">No linked contract on this payment.</p>');
@@ -1396,7 +1570,7 @@ function openDepositView(i){
       <span class="k">${p.invoice_number || '—'} · ${p.customer || ''}</span>
       <span class="v">
         $${fmt(p.amount)}
-        <!-- [CONTRACT-FEED OFF] <button class="link" style="margin-left:8px;" onclick="closeModal('view-modal');openContractView('${p.contract_id||''}')">View contract</button> -->
+        <button class="link" style="margin-left:8px;" onclick="closeModal('view-modal');openSaleView('${p.contract_id||''}')">View sale</button>
         <button class="link" style="margin-left:8px;" onclick="closeModal('view-modal');openEdit('payments','${p.id}')">Edit</button>
         <button class="link danger" style="margin-left:8px;" onclick="deleteRow('payments','${p.id}').then(ok=>{if(ok)closeModal('view-modal');})">Delete</button>
       </span>
@@ -1790,7 +1964,11 @@ function filterExpensesByCategory(cat){
 
 async function loadExpenses(){
   const {start,end} = getPeriodRange('exp');
-  let q = sb.from('expenses').select('*').gte('date', start).lte('date', end).order('date', {ascending:false});
+  const matchFilter = document.getElementById('exp-filter-match').value;
+  let q = sb.from('expenses').select('*').order('date', {ascending:false});
+  // "Unmatched — all dates" ignores the month/year so an old uncleared check never drops out of view
+  if (matchFilter === 'uncleared-all') q = q.is('bank_stmt_file', null);
+  else q = q.gte('date', start).lte('date', end);
   const method = document.getElementById('exp-filter-method').value;
   const category = document.getElementById('exp-filter-category').value;
   if (method) q = q.eq('payment_method', method);
@@ -1801,6 +1979,8 @@ async function loadExpenses(){
   const summary = document.getElementById('expense-summary');
   if (error){ body.innerHTML = `<tr><td colspan="9" class="empty">${error.message}</td></tr>`; summary.textContent=''; return; }
   data = applySearch(data || [], document.getElementById('exp-search').value, ['payee','category','check_number','notes']);
+  if (matchFilter === 'matched') data = data.filter(r => !!r.bank_stmt_file);
+  else if (matchFilter === 'unmatched' || matchFilter === 'uncleared-all') data = data.filter(r => !r.bank_stmt_file);
   if (!data.length){ body.innerHTML = '<tr><td colspan="9" class="empty">No expenses for this filter.</td></tr>'; summary.textContent = '0 rows · Total: $0.00'; document.getElementById('exp-summary-body').innerHTML='<tr><td colspan="2" class="empty">No data</td></tr>'; document.getElementById('exp-summary-total').innerHTML='<strong>$0.00</strong>'; return; }
   rowCache.expenses = {};
   data.forEach(r => rowCache.expenses[r.id] = r);
@@ -1817,7 +1997,8 @@ async function loadExpenses(){
       <td>${rowActionButtons('expenses', r.id)}</td>
     </tr>`).join('');
   const total = data.reduce((s,r)=>s+(Number(r.amount)||0),0);
-  summary.textContent = `${data.length} expense${data.length===1?'':'s'} · Total: $${fmt(total)}`;
+  const matchNote = matchFilter === 'uncleared-all' ? ' · unmatched, all dates' : matchFilter === 'unmatched' ? ' · unmatched' : matchFilter === 'matched' ? ' · matched' : '';
+  summary.textContent = `${data.length} expense${data.length===1?'':'s'} · Total: $${fmt(total)}${matchNote}`;
 
   // right-side "Summary by Category" box, mirroring the original
   // spreadsheet's Description / SUM of Amount layout
@@ -1830,7 +2011,7 @@ async function loadExpenses(){
   document.getElementById('exp-summary-total').innerHTML = `<strong>${money(total,false)}</strong>`;
 }
 initPeriodControls('exp', () => loadExpenses());
-['exp-filter-method','exp-filter-category'].forEach(id=>{
+['exp-filter-method','exp-filter-category','exp-filter-match'].forEach(id=>{
   document.getElementById(id).addEventListener('change', loadExpenses);
 });
 document.getElementById('exp-search').addEventListener('input', loadExpenses);
@@ -2491,12 +2672,23 @@ function renderReconciliation(rows, unmatchedRegister){
   recAllRows = rows;
   recAllUnmatched = unmatchedRegister;
   recFilter = null;
+  syncRecSelect();
   renderRecCards();
   renderRecBody();
 }
 
+function syncRecSelect(){
+  const sel = document.getElementById('rec-filter-select');
+  if (sel) sel.value = (recFilter === 'group-matched' || recFilter === 'group-unmatched') ? recFilter : '';
+}
+function setRecGroup(val){
+  recFilter = val || null;
+  renderRecCards();
+  renderRecBody();
+}
 function setRecFilter(filter){
   recFilter = (recFilter === filter) ? null : filter; // clicking the active card again clears the filter
+  syncRecSelect();
   renderRecCards();
   renderRecBody();
 }
@@ -2583,6 +2775,15 @@ function renderRecBody(){
   } else if (recFilter === 'matched-elsewhere'){
     visibleBank = [];
     visibleOutstanding = unmatchedRegister.filter(r => r.bank_stmt_file && r.bank_stmt_file !== recStmtFileName).map(r => outstandingHtml[unmatchedRegister.indexOf(r)]);
+  }
+  else if (recFilter === 'group-matched'){
+    // Matched on this statement, plus register items already matched on another statement
+    visibleBank = bankRowObjs.filter(o=>o.status==='Matched').map(o=>o.html);
+    visibleOutstanding = unmatchedRegister.filter(r => r.bank_stmt_file && r.bank_stmt_file !== recStmtFileName).map(r => outstandingHtml[unmatchedRegister.indexOf(r)]);
+  } else if (recFilter === 'group-unmatched'){
+    // Missing in Register + Amount Mismatch + register items (uncleared checks) not on this statement
+    visibleBank = bankRowObjs.filter(o=>o.status!=='Matched').map(o=>o.html);
+    visibleOutstanding = unmatchedRegister.filter(r => !(r.bank_stmt_file && r.bank_stmt_file !== recStmtFileName)).map(r => outstandingHtml[unmatchedRegister.indexOf(r)]);
   }
   else { visibleBank = bankRowObjs.filter(o=>o.status===recFilter).map(o=>o.html); visibleOutstanding = []; }
 
